@@ -1236,6 +1236,28 @@ What is left in the desktop's slow frames, which are now at most ~35 ms:
 - the first frame in a new area or after a respawn, ~800 new textures at
   once: 100-150 ms.
 
+### Native lighting and SSAO through the queue (2026-10-25)
+
+With the recording thread on, `native_lighting` and `native_ssao` were the
+last calls that waited every frame for the queue to drain: ~2.8 s of
+`bq_sync` in a 5-minute soak, up to 105 ms in one frame. Both now go into
+the queue once a direct call has given their images (the backend refills the
+same ones while the inputs' size holds); a failure, or images that moved,
+sends the next call direct again, one call late, as `native_latch` does.
+`PS3RECOMP_BQ_LTASYNC=0` turns both off.
+
+Two alternating pairs after a warm-up soak (the first soak after a rebuild
+builds ~10,000 pipelines and is not comparable), world frames from 190 s:
+
+| | bq_sync a run | us per draw (p50) |
+|---|---|---|
+| Off | 2.7-2.9 s | 1.48, 1.45 |
+| On | 0.07-0.16 s | 1.36, 1.34 |
+
+Raw p50 and the hitch counts moved either way with where the soak went
+(median draws 6,700 against 7,200), so the soaks need normalising per draw
+to show a change this size.
+
 ## The start screen and the in-game menu
 
 `rpi/launcher/` has the design and the plan.

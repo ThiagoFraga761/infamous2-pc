@@ -69,6 +69,8 @@ echo "log: $LOG"
 # A stall of a few seconds, the kind a player calls a freeze and that is over
 # before the watcher below acts: the game itself writes every thread's stack
 # into <log>-stalls/ when no frame comes for PS3_STALL_MS (main.cpp).
+# Name the main thread's usleep poll sites every 10 s: a freeze that spins on a flag shows its guest address in the log.
+export PS3_POLLTOP="${PS3_POLLTOP:-10}"
 export PS3_STALL_MS="${PS3_STALL_MS:-2500}"
 export PS3_STALL_DIR="${PS3_STALL_DIR:-${LOG%.log}-stalls}"
 mkdir -p "$PS3_STALL_DIR"
