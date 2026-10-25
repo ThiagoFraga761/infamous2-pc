@@ -54,6 +54,14 @@ NATIVE_ENTRIES = [
     0x005DEF90,     # memcpy(dst, src, n)
 ]
 
+# Hooks for port/ppu_native.cpp's call-count probes (PS3RECOMP_PPU_PROBE=1):
+# off, the hook finds nothing and the function runs as lifted. Keep in step
+# with s_probe_addr there.
+PROBES = [
+    0x001768B8, 0x0016C38C, 0x0021D5B4, 0x0021B994, 0x0022C6D4, 0x0024C7EC,
+    0x0030B810, 0x00313E84, 0x0046B568, 0x002E66A8,
+]
+
 # func_00314BC8's inner loop, ~85% of the function and ~5% of the main thread
 # in the city: from index r29, the first zero byte of the array whose address
 # is at 0xBC(r1), stopping at r28 (signed compare, the first byte read before
@@ -189,7 +197,7 @@ def main():
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--no-blocks", action="store_true")
     a = ap.parse_args()
-    want = set(NATIVE_ENTRIES)
+    want = set(NATIVE_ENTRIES) | set(PROBES)
     blocks = [] if a.no_blocks else NATIVE_BLOCKS
     chunks = sorted(glob.glob(os.path.join(a.recomp, "ppu_recomp_*.cpp")))
     if not chunks:

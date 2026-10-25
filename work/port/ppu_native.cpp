@@ -38,6 +38,7 @@
 #include <string.h>
 #include <time.h>
 #include <atomic>
+#include <utility>
 #include <vector>
 
 /* ---- guest memory ranges ------------------------------------------------ */
@@ -126,9 +127,99 @@ extern "C" const ppu_native_desc* ppu_native_table(int* n)
     *n = s_n;
     return s_tab;
 }
+/* ---- call-count probes -------------------------------------------------- */
+
+/* Functions listed in tools/ppu_native_entries.py PROBES get a hook whose
+ * native side only counts the call and declines, so the lifted body runs as
+ * before: calls a second, every 10 s on stderr ([ppu-probe]). For finding
+ * which game loops run how often (rpi/decomp-scene). */
+static const uint32_t s_probe_addr[] = {
+    0x001768B8u,    /* CHeroGunSkill::vf8 */
+    0x0016C38Cu, 0x0021D5B4u, 0x0021B994u, 0x0022C6D4u, 0x0024C7ECu,
+    0x0030B810u,    /* CSo::vf33 */
+    0x00313E84u,    /* CSo::vf25 */
+    0x0046B568u,    /* CXo::get_pos */
+    0x002E66A8u,    /* vt_008D63E0::vf3 */
+};
+#define N_PROBES (sizeof s_probe_addr / sizeof s_probe_addr[0])
+static std::atomic<uint64_t> s_probe_n[N_PROBES];
+/* CSo::vf33's results in 00314BC8's solve passes: 0, 1, 2 (solved), other */
+static std::atomic<uint64_t> s_vf33_ret[4];
+static std::atomic<uint64_t> s_vf33_same;   /* a retry on the object retried just before */
+/* What the SPUs run while vf33 says "not yet": every 256th retry samples each
+ * SPURS SPU (spurs_tl_sample): idle, or the resident job overlay. */
+extern "C" void spurs_tl_sample(void (*)(const char*, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t));
+static std::atomic<uint64_t> s_wait_ovl[256], s_wait_idle, s_wait_n;
+static void wait_emit(const char*, uint32_t, uint32_t ovl, uint32_t, uint32_t idle, uint32_t, uint32_t)
+{
+    if (idle & 1u) s_wait_idle.fetch_add(1, std::memory_order_relaxed);
+    else s_wait_ovl[ovl & 0xFFu].fetch_add(1, std::memory_order_relaxed);
+}
+static void probe_tick(void)
+{
+    static std::atomic<uint64_t> next;
+    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+    const uint64_t now = (uint64_t)ts.tv_sec;
+    uint64_t t = next.load(std::memory_order_relaxed);
+    if (!t) { next.compare_exchange_strong(t, now + 10); return; }
+    if (now < t || !next.compare_exchange_strong(t, now + 10)) return;
+    fprintf(stderr, "[ppu-probe] calls/s:");
+    for (size_t i = 0; i < N_PROBES; i++)
+        fprintf(stderr, " %08X=%llu", s_probe_addr[i],
+                (unsigned long long)(s_probe_n[i].exchange(0, std::memory_order_relaxed) / 10));
+    fprintf(stderr, " | vf33 ret0=%llu/s ret1=%llu/s ret2=%llu/s other=%llu/s same-obj=%llu/s\n",
+            (unsigned long long)(s_vf33_ret[0].exchange(0, std::memory_order_relaxed) / 10),
+            (unsigned long long)(s_vf33_ret[1].exchange(0, std::memory_order_relaxed) / 10),
+            (unsigned long long)(s_vf33_ret[2].exchange(0, std::memory_order_relaxed) / 10),
+            (unsigned long long)(s_vf33_ret[3].exchange(0, std::memory_order_relaxed) / 10),
+            (unsigned long long)(s_vf33_same.exchange(0, std::memory_order_relaxed) / 10));
+    const uint64_t ns = s_wait_n.exchange(0, std::memory_order_relaxed);
+    if (ns) {
+        fprintf(stderr, "[ppu-probe] while vf33 waits (%llu samples x SPUs): idle %.2f", (unsigned long long)ns,
+                (double)s_wait_idle.exchange(0, std::memory_order_relaxed) / (double)ns);
+        for (int o = 0; o < 256; o++) {
+            const uint64_t k = s_wait_ovl[o].exchange(0, std::memory_order_relaxed);
+            if (k * 50 >= ns) fprintf(stderr, " ovl%d %.2f", o, (double)k / (double)ns);
+        }
+        fputc('\n', stderr);
+    }
+}
+extern void func_0030B810(ppu_context*);
+static __thread int t_in_vf33;
+template <size_t I> static int probe_fn(ppu_context* c)
+{
+    if (s_probe_addr[I] == 0x0030B810u && t_in_vf33) return 0;   /* the inner run */
+    s_probe_n[I].fetch_add(1, std::memory_order_relaxed);
+    if (I == 0) probe_tick();
+    if (s_probe_addr[I] == 0x0030B810u && !t_in_vf33) {
+        /* run the lifted body (its hook declines while the flag is set) to
+         * see what it returns */
+        static __thread uint32_t last_retry;
+        const uint32_t obj = (uint32_t)c->gpr[3];
+        t_in_vf33 = 1;
+        func_0030B810(c);
+        t_in_vf33 = 0;
+        const int32_t r = (int32_t)c->gpr[3];
+        s_vf33_ret[r >= 0 && r <= 2 ? r : 3].fetch_add(1, std::memory_order_relaxed);
+        if (r != 2) {
+            if (obj == last_retry) s_vf33_same.fetch_add(1, std::memory_order_relaxed);
+            last_retry = obj;
+            static __thread uint32_t k;
+            if ((++k & 255u) == 0) { s_wait_n.fetch_add(1, std::memory_order_relaxed); spurs_tl_sample(wait_emit); }
+        }
+        return 1;
+    }
+    return 0;
+}
+template <size_t... I> static void probe_register(std::index_sequence<I...>)
+{
+    (ppu_native_register(s_probe_addr[I], probe_fn<I>), ...);
+}
+
 __attribute__((constructor)) static void ppu_native_init(void)
 {
     for (const ppu_native_desc& d : s_funcs) ppu_native_register_desc(&d);
+    if (getenv("PS3RECOMP_PPU_PROBE")) probe_register(std::make_index_sequence<N_PROBES>{});
     const char* e = getenv("PS3RECOMP_NATIVE_PPU");
     g_ppu_native_blocks = !e || atoi(e) != 0;
 }
@@ -249,6 +340,15 @@ extern "C" int (*ppu_native_slot(uint32_t addr))(ppu_context*)
                     m == 2 ? "compared with the lifted ones" : m ? "on" : "off");
         s_mode = m;
     }
+    /* PS3RECOMP_NATIVE_PPU_OFF=<hex>,...: those entries stay lifted (A/B of one) */
+    if (const char* off = getenv("PS3RECOMP_NATIVE_PPU_OFF"))
+        for (const char* p = off; *p; ) {
+            char* end;
+            const unsigned long a = strtoul(p, &end, 16);
+            if (end == p) break;
+            if (a == addr) return nullptr;
+            p = *end == ',' ? end + 1 : end;
+        }
     for (int i = 0; i < s_n; i++)
         if (s_tab[i].addr == addr) return s_mode == 0 ? nullptr : s_mode == 2 ? s_thunks[i] : s_tab[i].fn;
     return nullptr;
