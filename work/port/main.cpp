@@ -664,6 +664,13 @@ int main(int argc, char** argv)
      * work over with its own atomics, which wake nobody, and a sleeping SPU
      * saw them only at its 1 ms timeout (libs/spurs/spurs_kernel.c). */
     env_default("SPURS_IDLE_SPIN_US", "200");
+    /* Workload 0 (General: the job lists the main thread waits on in the
+     * frame) first on every SPU, ahead of the title's 1 and 2. A quarter of
+     * the main thread's job-list wait was its jobs queued while all five SPUs
+     * ran other workloads. City soak, two alternating pairs: p99 33.6 ->
+     * 27.7 ms, p99.9 63.8 -> 47.0 ms, frames over 40 ms 166 -> 56 a run, 1%
+     * low 21.9 -> 28.9 fps (libs/spurs/spurs_kernel.c, SPURS_PRIO). */
+    env_default("SPURS_PRIO", "0:1");
     /* The main PPU thread, rsx, rsx-record and the five SPURS SPUs each on a
      * physical core of their own, everything else on the other siblings
      * (runtime/platform/ps3_hot_pin.c; needs SMT and 8+ cores). Heavy area,

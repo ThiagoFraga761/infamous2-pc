@@ -525,10 +525,57 @@ index 3f74504..512e50e 100644
  
      if (bytesRead) vm_write64((u32)(uintptr_t)bytesRead, (u64)n);
 diff --git a/libs/input/cellPad.c b/libs/input/cellPad.c
-index f2b4c11..87a7185 100644
+index f2b4c11..fc08e7c 100644
 --- a/libs/input/cellPad.c
 +++ b/libs/input/cellPad.c
-@@ -421,6 +421,117 @@ static unsigned long long pad_now_ms(void)
+@@ -287,8 +287,13 @@ static u8 pad_sdl_trigger_to_u8(int raw)
+     return (u8)val;
+ }
+ 
++/* The PPU threads poll and open pads while the window's thread pumps SDL
++ * events (which update the same joysticks) and the overlay reads gamepads:
++ * every SDL joystick call here holds SDL's joystick lock. Opening a pad on the
++ * game's thread during an event pump corrupted the heap at boot. */
+ static void pad_poll_sdl2(void)
+ {
++    SDL_LockJoysticks();
+     SDL_GameControllerUpdate();
+ 
+     for (int i = 0; i < PAD_MAX_HOST_PORTS; i++) {
+@@ -357,10 +362,12 @@ static void pad_poll_sdl2(void)
+         s_host_state[i].press_l1       = (btns & CELL_PAD_CTRL_L1)       ? 255 : 0;
+         s_host_state[i].press_r1       = (btns & CELL_PAD_CTRL_R1)       ? 255 : 0;
+     }
++    SDL_UnlockJoysticks();
+ }
+ 
+ static void pad_init_backend(void)
+ {
++    SDL_LockJoysticks();
+     if (!s_sdl_inited) {
+         if (SDL_WasInit(SDL_INIT_GAMECONTROLLER) == 0) {
+             SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER);
+@@ -376,16 +383,19 @@ static void pad_init_backend(void)
+             s_sdl_controllers[i] = SDL_GameControllerOpen(i);
+         }
+     }
++    SDL_UnlockJoysticks();
+ }
+ 
+ static void pad_shutdown_backend(void)
+ {
++    SDL_LockJoysticks();
+     for (int i = 0; i < PAD_MAX_HOST_PORTS; i++) {
+         if (s_sdl_controllers[i]) {
+             SDL_GameControllerClose(s_sdl_controllers[i]);
+             s_sdl_controllers[i] = NULL;
+         }
+     }
++    SDL_UnlockJoysticks();
+ }
+ 
+ #endif /* PAD_BACKEND_SDL2 */
+@@ -421,6 +431,117 @@ static unsigned long long pad_now_ms(void)
  #endif
  }
  
@@ -646,7 +693,7 @@ index f2b4c11..87a7185 100644
  static void pad_poll_backend(void)
  {
      /* Benign race: two threads may poll in the same tick. That costs one extra
-@@ -442,6 +553,9 @@ static void pad_poll_backend(void)
+@@ -442,6 +563,9 @@ static void pad_poll_backend(void)
  #ifdef _WIN32
      if (!s_host_state[0].connected) pad_poll_keyboard();
  #endif
@@ -656,7 +703,7 @@ index f2b4c11..87a7185 100644
  }
  
  /* ---------------------------------------------------------------------------
-@@ -502,6 +616,11 @@ void cellPad_poll(void)
+@@ -502,6 +626,11 @@ void cellPad_poll(void)
   * were fixed.) These used to be redeclared here with a 64-bit address
   * parameter, which conflicts with the header now that it is included. */
  
@@ -668,7 +715,7 @@ index f2b4c11..87a7185 100644
  s32 cellPadGetData(u32 port_no, CellPadData* data_guest)
  {
      { static int _once = 0;
-@@ -571,6 +690,13 @@ skip_inject: ;
+@@ -571,6 +700,13 @@ skip_inject: ;
  
      {
      PadHostState* hs = &s_host_state[port_no];
@@ -682,7 +729,7 @@ index f2b4c11..87a7185 100644
      u32 setting = s_port_setting[port_no];
  
      /* Determine data length based on port settings */
-@@ -672,6 +798,7 @@ skip_inject: ;
+@@ -672,6 +808,7 @@ skip_inject: ;
       */
      { static int s_pf = -1; static char pf_path[512];
        static unsigned held_mask = 0; static int held_n = 0;
@@ -690,7 +737,7 @@ index f2b4c11..87a7185 100644
        if (s_pf < 0) { const char* e = getenv("PAD_FILE");
                        s_pf = (e && *e) ? 1 : 0;
                        if (s_pf) { strncpy(pf_path, e, sizeof pf_path - 1); pf_path[sizeof pf_path - 1] = 0; } }
-@@ -680,20 +807,35 @@ skip_inject: ;
+@@ -680,20 +817,35 @@ skip_inject: ;
                FILE* f = fopen(pf_path, "rb");
                if (f) {
                    char buf[64]; buf[0] = 0;
@@ -732,7 +779,7 @@ index f2b4c11..87a7185 100644
        } }
  
      /* Analog sticks */
-@@ -829,6 +971,14 @@ emit:
+@@ -829,6 +981,14 @@ emit:
              else                        s_data_fresh[port_no] = 0;
          }
      }
@@ -747,7 +794,7 @@ index f2b4c11..87a7185 100644
      {
          unsigned int ea = (unsigned int)(uintptr_t)data_guest;
          vm_write32((unsigned long long)ea + 0, (unsigned int)data->len);   /* len (s32) */
-@@ -985,7 +1135,7 @@ s32 cellPadPeriphGetInfo(CellPadPeriphInfo* info_guest)
+@@ -985,7 +1145,7 @@ s32 cellPadPeriphGetInfo(CellPadPeriphInfo* info_guest)
            vm_write32((unsigned long long)ea + _o, *(u32*)((char*)info + _o)); }
  
      { static int _n = 0;
@@ -756,6 +803,21 @@ index f2b4c11..87a7185 100644
            printf("[cellPad] PeriphGetInfo(max=%u now=%u) -> STANDARD class\n",
                   info->max_connect, connected); }
      return CELL_OK;
+@@ -1083,12 +1243,14 @@ s32 cellPadSetActDirect(u32 port_no, CellPadActParam* param)
+ 
+ #if PAD_BACKEND_SDL2
+     if (port_no < PAD_MAX_HOST_PORTS && s_sdl_controllers[port_no]) {
++        SDL_LockJoysticks();
+         SDL_GameControllerRumble(
+             s_sdl_controllers[port_no],
+             (Uint16)(param->motor[CELL_PAD_ACTUATOR_PARAM_LARGE] * 257),
+             (Uint16)(param->motor[CELL_PAD_ACTUATOR_PARAM_SMALL] * 257),
+             100 /* duration ms */
+         );
++        SDL_UnlockJoysticks();
+     }
+ #endif
+ 
 diff --git a/libs/network/cellHttp.c b/libs/network/cellHttp.c
 index d39d88d..c7ec705 100644
 --- a/libs/network/cellHttp.c
@@ -3874,10 +3936,10 @@ index 0000000..eb0596f
 +#endif
 diff --git a/libs/spurs/spurs_kernel.c b/libs/spurs/spurs_kernel.c
 new file mode 100644
-index 0000000..1647f0d
+index 0000000..570ba85
 --- /dev/null
 +++ b/libs/spurs/spurs_kernel.c
-@@ -0,0 +1,963 @@
+@@ -0,0 +1,993 @@
 +/*
 + * ps3recomp - the SPURS kernel on the SPUs, and libsre's two PPU helpers
 + *
@@ -4161,6 +4223,35 @@ index 0000000..1647f0d
 +
 +/* ---- the system service ---------------------------------------------------------- */
 +
++/* SPURS_PRIO=<wid>:<prio>,... (prio 1 highest .. 15): replaces the title's
++ * priority of those workloads, on every SPU that has the workload runnable
++ * (a priority of 0, "never on this SPU", is kept). For A/B runs of the
++ * scheduling: the priorities only order the SPUs' choice between ready
++ * workloads, so no result changes, only when jobs run. */
++static int s_prio_n = -1;
++static uint8_t s_prio_wid[SPURS_MAX_WKL], s_prio_val[SPURS_MAX_WKL];
++static void kprio_override(KSpu* v)
++{
++    if (__builtin_expect(s_prio_n < 0, 0)) {
++        int n = 0;
++        const char* e = getenv("SPURS_PRIO");
++        while (e && *e && n < SPURS_MAX_WKL) {
++            char* end; const long w = strtol(e, &end, 0);
++            if (*end != ':') break;
++            const long pr = strtol(end + 1, &end, 0);
++            if (w >= 0 && w < SPURS_MAX_WKL && pr >= 1 && pr <= 15) {
++                s_prio_wid[n] = (uint8_t)w; s_prio_val[n] = (uint8_t)pr; n++;
++            }
++            if (*end != ',') break;
++            e = end + 1;
++        }
++        if (n) fprintf(stderr, "[spurs] SPURS_PRIO: %d workload priorit%s overridden\n", n, n == 1 ? "y" : "ies");
++        __atomic_store_n(&s_prio_n, n, __ATOMIC_RELEASE);
++    }
++    for (int k = 0; k < s_prio_n; k++)
++        if (v->prio[s_prio_wid[k]]) v->prio[s_prio_wid[k]] = (uint8_t)(0x10 - s_prio_val[k]);
++}
++
 +/* The update-workload message: this SPU's priorities and uniqueIds, its bit in
 + * every workload's status, its runnable mask; a shutting-down workload this
 + * SPU was the last to hold becomes removable. */
@@ -4175,6 +4266,7 @@ index 0000000..1647f0d
 +        v->prio[i] = p ? (uint8_t)(0x10 - p) : 0;
 +        v->uid[i] = info[0x14];
 +    }
++    kprio_override(v);
 +    uint32_t shutdown = 0, notify = 0;
 +    uint16_t runnable = 0;
 +    klock(in);
@@ -16496,10 +16588,10 @@ index ce99e68..9f43916 100644
  #endif
 diff --git a/libs/video/rsx_ui.cpp b/libs/video/rsx_ui.cpp
 new file mode 100644
-index 0000000..1ff387a
+index 0000000..cd020c9
 --- /dev/null
 +++ b/libs/video/rsx_ui.cpp
-@@ -0,0 +1,616 @@
+@@ -0,0 +1,621 @@
 +/*
 + * ps3recomp - a user interface over the game's window (Dear ImGui, Vulkan).
 + * See rsx_ui.h for the threads, rsx_ui_vk.h for the backend's side.
@@ -16904,11 +16996,16 @@ index 0000000..1ff387a
 +    if (!U.ok || !U.imgui_vk) return;
 +
 +    /* Select+Start held half a second opens or closes the menu. */
++    /* Under SDL's joystick lock: cellPad opens and polls the same pads from
++     * the game's threads, and the device list behind SDL_NumJoysticks is
++     * rebuilt on each call (two threads at once corrupted the heap). */
 +    if (!U.modal) { SDL_GameController* gc = nullptr;
++      SDL_LockJoysticks();
 +      for (int i = 0; i < SDL_NumJoysticks() && !gc; i++)
 +          if (SDL_IsGameController(i)) gc = SDL_GameControllerFromInstanceID(SDL_JoystickGetDeviceInstanceID(i));
 +      const bool both = gc && SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_BACK) &&
 +                        SDL_GameControllerGetButton(gc, SDL_CONTROLLER_BUTTON_START);
++      SDL_UnlockJoysticks();
 +      if (both) {
 +          const double before = U.hold;
 +          U.hold += U.dt;
