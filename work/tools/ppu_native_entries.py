@@ -59,7 +59,8 @@ NATIVE_ENTRIES = [
 # with s_probe_addr there.
 PROBES = [
     0x001768B8, 0x0016C38C, 0x0021D5B4, 0x0021B994, 0x0022C6D4, 0x0024C7EC,
-    0x0030B810, 0x00313E84, 0x0046B568, 0x002E66A8,
+    0x0030B810, 0x00313E84, 0x0046B568, 0x002E66A8, 0x0046B728, 0x00243138,
+    0x00237AB0,
 ]
 
 # func_00314BC8's inner loop, ~85% of the function and ~5% of the main thread

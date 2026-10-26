@@ -130,9 +130,9 @@ extern "C" const ppu_native_desc* ppu_native_table(int* n)
 /* ---- call-count probes -------------------------------------------------- */
 
 /* Functions listed in tools/ppu_native_entries.py PROBES get a hook whose
- * native side only counts the call and declines, so the lifted body runs as
- * before: calls a second, every 10 s on stderr ([ppu-probe]). For finding
- * which game loops run how often (rpi/decomp-scene). */
+ * native side runs the lifted body and times it: calls a second, time a
+ * second inside and the longest call, every 10 s on stderr ([ppu-probe]).
+ * For finding which game loops run how often and how long (rpi/decomp-scene). */
 static const uint32_t s_probe_addr[] = {
     0x001768B8u,    /* CHeroGunSkill::vf8 */
     0x0016C38Cu, 0x0021D5B4u, 0x0021B994u, 0x0022C6D4u, 0x0024C7ECu,
@@ -140,9 +140,33 @@ static const uint32_t s_probe_addr[] = {
     0x00313E84u,    /* CSo::vf25 */
     0x0046B568u,    /* CXo::get_pos */
     0x002E66A8u,    /* vt_008D63E0::vf3 */
+    0x0046B728u,    /* CXo::get_VELOCITY */
+    0x00243138u, 0x00237AB0u,
+};
+extern void func_001768B8(ppu_context*); extern void func_0016C38C(ppu_context*);
+extern void func_0021D5B4(ppu_context*); extern void func_0021B994(ppu_context*);
+extern void func_0022C6D4(ppu_context*); extern void func_0024C7EC(ppu_context*);
+extern void func_0030B810(ppu_context*); extern void func_00313E84(ppu_context*);
+extern void func_0046B568(ppu_context*); extern void func_002E66A8(ppu_context*);
+extern void func_0046B728(ppu_context*); extern void func_00243138(ppu_context*);
+extern void func_00237AB0(ppu_context*);
+/* The lifted bodies, in s_probe_addr's order: a probe runs the body itself to
+ * time it (its own hook declines while it does, so a recursive call is timed
+ * as part of the outermost one and not counted). */
+static void (*const s_probe_body[])(ppu_context*) = {
+    func_001768B8, func_0016C38C, func_0021D5B4, func_0021B994, func_0022C6D4, func_0024C7EC,
+    func_0030B810, func_00313E84, func_0046B568, func_002E66A8, func_0046B728, func_00243138,
+    func_00237AB0,
 };
 #define N_PROBES (sizeof s_probe_addr / sizeof s_probe_addr[0])
-static std::atomic<uint64_t> s_probe_n[N_PROBES];
+static_assert(sizeof s_probe_body / sizeof s_probe_body[0] == N_PROBES, "s_probe_body out of step");
+static std::atomic<uint64_t> s_probe_n[N_PROBES], s_probe_ns[N_PROBES], s_probe_max[N_PROBES];
+static __thread uint8_t t_probe_in[N_PROBES];
+static uint64_t probe_now_ns(void)
+{
+    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+}
 /* CSo::vf33's results in 00314BC8's solve passes: 0, 1, 2 (solved), other */
 static std::atomic<uint64_t> s_vf33_ret[4];
 static std::atomic<uint64_t> s_vf33_same;   /* a retry on the object retried just before */
@@ -163,11 +187,14 @@ static void probe_tick(void)
     uint64_t t = next.load(std::memory_order_relaxed);
     if (!t) { next.compare_exchange_strong(t, now + 10); return; }
     if (now < t || !next.compare_exchange_strong(t, now + 10)) return;
-    fprintf(stderr, "[ppu-probe] calls/s:");
+    /* per function: calls/s, ms/s spent inside, the longest call in us */
+    fprintf(stderr, "[ppu-probe] calls/s ms/s max-us:");
     for (size_t i = 0; i < N_PROBES; i++)
-        fprintf(stderr, " %08X=%llu", s_probe_addr[i],
-                (unsigned long long)(s_probe_n[i].exchange(0, std::memory_order_relaxed) / 10));
-    fprintf(stderr, " | vf33 ret0=%llu/s ret1=%llu/s ret2=%llu/s other=%llu/s same-obj=%llu/s\n",
+        fprintf(stderr, " %08X=%llu/%.1f/%llu", s_probe_addr[i],
+                (unsigned long long)(s_probe_n[i].exchange(0, std::memory_order_relaxed) / 10),
+                (double)s_probe_ns[i].exchange(0, std::memory_order_relaxed) / 1e7,
+                (unsigned long long)(s_probe_max[i].exchange(0, std::memory_order_relaxed) / 1000));
+    fprintf(stderr, "\n[ppu-probe] vf33 ret0=%llu/s ret1=%llu/s ret2=%llu/s other=%llu/s same-obj=%llu/s\n",
             (unsigned long long)(s_vf33_ret[0].exchange(0, std::memory_order_relaxed) / 10),
             (unsigned long long)(s_vf33_ret[1].exchange(0, std::memory_order_relaxed) / 10),
             (unsigned long long)(s_vf33_ret[2].exchange(0, std::memory_order_relaxed) / 10),
@@ -184,32 +211,32 @@ static void probe_tick(void)
         fputc('\n', stderr);
     }
 }
-extern void func_0030B810(ppu_context*);
-static __thread int t_in_vf33;
 template <size_t I> static int probe_fn(ppu_context* c)
 {
-    if (s_probe_addr[I] == 0x0030B810u && t_in_vf33) return 0;   /* the inner run */
-    s_probe_n[I].fetch_add(1, std::memory_order_relaxed);
+    if (t_probe_in[I]) return 0;   /* the inner run, or a recursive call */
     if (I == 0) probe_tick();
-    if (s_probe_addr[I] == 0x0030B810u && !t_in_vf33) {
-        /* run the lifted body (its hook declines while the flag is set) to
-         * see what it returns */
-        static __thread uint32_t last_retry;
-        const uint32_t obj = (uint32_t)c->gpr[3];
-        t_in_vf33 = 1;
-        func_0030B810(c);
-        t_in_vf33 = 0;
+    const uint32_t obj = (uint32_t)c->gpr[3];
+    t_probe_in[I] = 1;
+    const uint64_t t0 = probe_now_ns();
+    s_probe_body[I](c);
+    const uint64_t dt = probe_now_ns() - t0;
+    t_probe_in[I] = 0;
+    s_probe_n[I].fetch_add(1, std::memory_order_relaxed);
+    s_probe_ns[I].fetch_add(dt, std::memory_order_relaxed);
+    uint64_t m = s_probe_max[I].load(std::memory_order_relaxed);
+    while (dt > m && !s_probe_max[I].compare_exchange_weak(m, dt, std::memory_order_relaxed)) { }
+    if (s_probe_addr[I] == 0x0030B810u) {
         const int32_t r = (int32_t)c->gpr[3];
         s_vf33_ret[r >= 0 && r <= 2 ? r : 3].fetch_add(1, std::memory_order_relaxed);
         if (r != 2) {
+            static __thread uint32_t last_retry;
             if (obj == last_retry) s_vf33_same.fetch_add(1, std::memory_order_relaxed);
             last_retry = obj;
             static __thread uint32_t k;
             if ((++k & 255u) == 0) { s_wait_n.fetch_add(1, std::memory_order_relaxed); spurs_tl_sample(wait_emit); }
         }
-        return 1;
     }
-    return 0;
+    return 1;
 }
 template <size_t... I> static void probe_register(std::index_sequence<I...>)
 {
