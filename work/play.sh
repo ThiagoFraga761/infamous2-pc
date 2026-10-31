@@ -25,6 +25,10 @@ export PS3RECOMP_VK_WINDOW=1
 # PS3RECOMP_RES_SCALE=2 (or 3) renders at that multiple of 1280x720.
 # PS3RECOMP_VK_FULLSCREEN=1 opens the window fullscreen.
 export SDL_NO_SIGNAL_HANDLERS=1
+# 60 fps cap: the uncapped game swings between ~110 and ~35 fps in the city, and
+# a steady 60 felt better and halved the worst frames. PS3RECOMP_FPS_LIMIT=0
+# runs uncapped; the in-game menu's setting is overridden while this is set.
+export PS3RECOMP_FPS_LIMIT="${PS3RECOMP_FPS_LIMIT:-60}"
 # Every 10 s, "[rsx fps] N fps ..." in this terminal.
 export PS3RECOMP_ENG_FPSLOG=1
 export PS3RECOMP_FTLOG=1
