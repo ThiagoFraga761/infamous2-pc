@@ -48,6 +48,10 @@ extern "C" void rsx_vulkan_backend_set_fullscreen(int on);
 extern "C" void rsx_vulkan_backend_set_vsync(int on);
 extern "C" void rsx_vulkan_backend_set_stretch(int on);
 extern "C" void rsx_vulkan_backend_set_fps_limit(int fps);
+extern "C" void rsx_vulkan_backend_set_post_aa(int mode);
+extern "C" void rsx_vulkan_backend_set_upscale(int mode);
+extern "C" void rsx_vulkan_backend_set_downscale(int mode);
+extern "C" void rsx_vulkan_backend_set_sharpen(float s);
 extern "C" int rsx_vulkan_backend_fullscreen(void);
 extern "C" unsigned ppu_boot_frames_presented(void);
 extern "C" volatile int g_savedata_title;   /* libs/system/cellSaveData.c */
@@ -75,7 +79,10 @@ const Lang k_langs[] = {
     { "korean",     "Coreano (experimental)",       false },
     { "chinese",    "Chinês (experimental)",        false },
 };
-const char* const k_scales[] = { "720p (1x)", "1440p (2x)", "4K (3x)" };
+const char* const k_scales[] = { "720p (1x)", "1440p (2x)", "4K (3x)", "5K (4x, supersampling)" };
+const char* const k_aa[] = { "Desligado", "FXAA", "SMAA 1x" };
+const char* const k_up[] = { "Bilinear", "FSR 1" };
+const char* const k_down[] = { "Bilinear", "Média por área" };
 const int k_fps_limits[] = { 0, 30, 40, 60, 80, 120, 240, -1 };
 const char* const k_fps_names[] = { "Sem limite", "30", "40", "60", "80", "120", "240", "Taxa do monitor" };
 const int k_fps_n = (int)(sizeof k_fps_limits / sizeof k_fps_limits[0]);
@@ -268,8 +275,37 @@ void page_video(port_settings& s)
 {
     int sc = s.scale - 1;
     pin_begin(PORT_PIN_SCALE);
-    if (ImGui::Combo("Resolução", &sc, k_scales, 3)) { s.scale = sc + 1; save(); }
+    if (ImGui::Combo("Resolução", &sc, k_scales, 4)) { s.scale = sc + 1; save(); }
     pin_end(PORT_PIN_SCALE);
+    /* The present chain: these four take effect at the next frame. */
+    pin_begin(PORT_PIN_POST_AA);
+    if (ImGui::Combo("Anti-aliasing", &s.post_aa, k_aa, 3)) { rsx_vulkan_backend_set_post_aa(s.post_aa); save(); }
+    pin_end(PORT_PIN_POST_AA);
+    pin_begin(PORT_PIN_UPSCALE);
+    if (ImGui::Combo("Ampliar para a janela", &s.upscale, k_up, 2)) { rsx_vulkan_backend_set_upscale(s.upscale); save(); }
+    pin_end(PORT_PIN_UPSCALE);
+    pin_begin(PORT_PIN_DOWNSCALE);
+    if (ImGui::Combo("Reduzir para a janela", &s.downscale, k_down, 2)) {
+        rsx_vulkan_backend_set_downscale(s.downscale); save();
+    }
+    pin_end(PORT_PIN_DOWNSCALE);
+    pin_begin(PORT_PIN_SHARPEN);
+    bool autos = s.sharpen < 0;
+    if (ImGui::Checkbox("Nitidez automática", &autos)) {
+        s.sharpen = autos ? -1 : 0;
+        rsx_vulkan_backend_set_sharpen(autos ? -1.0f : 0.0f); save();
+    }
+    if (!autos) {
+        ImGui::SameLine();
+        float f = s.sharpen / 1000.0f;
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 9.0f);
+        if (ImGui::SliderFloat("Nitidez", &f, 0.0f, 1.0f, "%.2f")) {
+            s.sharpen = (int)(f * 1000.0f + 0.5f);
+            rsx_vulkan_backend_set_sharpen(f);
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit()) save();
+    }
+    pin_end(PORT_PIN_SHARPEN);
     /* The window as it is: F11 changes it without the menu. */
     bool b = rsx_vulkan_backend_fullscreen();
     if (ImGui::Checkbox("Tela cheia  (F11)", &b)) { s.fullscreen = b; rsx_vulkan_backend_set_fullscreen(b); save(); }
@@ -291,7 +327,9 @@ void page_video(port_settings& s)
             ImGui::EndCombo();
         }
     }
-    hint("Resolução e monitor valem a partir da próxima vez que o jogo abrir.");
+    hint("Resolução e monitor valem a partir da próxima vez que o jogo abrir; o resto, na hora. "
+         "FSR 1 amplia quando a imagem é menor que a janela (720p numa tela 1440p); a média por "
+         "área reduz quando é maior (4K ou 5K numa tela 1440p). O anti-aliasing também suaviza o HUD do jogo.");
 }
 
 void page_language(port_settings& s)

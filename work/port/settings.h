@@ -12,11 +12,16 @@ extern "C" {
 
 typedef struct port_settings {
     /* [video] */
-    int scale;          /* render scale: 1 (720p), 2 (1440p), 3 (4K) */
+    int scale;          /* render scale: 1 (720p), 2 (1440p), 3 (4K), 4 (5K) */
     int fullscreen;     /* 0 window, 1 full screen */
     int vsync;          /* 1 fifo, 0 mailbox */
     int stretch;        /* 1 stretch to the window, 0 black bars */
     int display;        /* which monitor the window opens on */
+    /* The present chain (rsx_vulkan_backend.c, vk_post_record), changed live. */
+    int post_aa;        /* 0 off, 1 FXAA, 2 SMAA 1x */
+    int upscale;        /* a frame smaller than the window: 0 bilinear, 1 FSR 1 */
+    int downscale;      /* a frame larger than the window: 0 bilinear, 1 area average */
+    int sharpen;        /* RCAS in thousandths, 0..1000; -1 automatic */
     /* [language] */
     char voice[24];     /* the voice pack: cache/psarc/<voice>.psarc */
     char text[24];      /* the text pack: cache/psarc/<text>_text.psarc */
@@ -51,6 +56,9 @@ enum {
     PORT_PIN_STRETCH = 1 << 3, PORT_PIN_DISPLAY = 1 << 4, PORT_PIN_VOICE = 1 << 5,
     PORT_PIN_TEXT = 1 << 6, PORT_PIN_FPS_LIMIT = 1 << 7, PORT_PIN_RECORD_THREAD = 1 << 8,
     PORT_PIN_PARTICLES = 1 << 9, PORT_PIN_ANISO = 1 << 10,
+    /* 1 << 11 is left for PORT_PIN_FOV (feat/fov). */
+    PORT_PIN_POST_AA = 1 << 12, PORT_PIN_UPSCALE = 1 << 13, PORT_PIN_DOWNSCALE = 1 << 14,
+    PORT_PIN_SHARPEN = 1 << 15,
 };
 
 /* Before port_settings_export: each field whose variable is set takes the
