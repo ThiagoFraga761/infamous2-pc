@@ -1366,6 +1366,62 @@ now keeps its shape, centred, with black bars (`PS3RECOMP_VK_STRETCH=1`
 stretches as before). F11 or Alt+Enter switches full screen; the swapchain
 follows the new size through its out-of-date path.
 
+## Ultrawide (experimental)
+
+The **Ultrawide** option (F1, Video; `[video] ultrawide = 1`) draws the
+picture in the monitor's shape instead of 16:9 with bars. It takes effect at
+the next start, and on a 16:9 or 16:10 monitor it changes nothing. Three
+pieces, each with its own switch:
+
+- **The camera** (`PS3RECOMP_ASPECT`, port/ppu_native.cpp): the wrap of
+  `CView::SetFov` computes tan_x with the wider aspect, so the projection,
+  the culling frustum and the screen/world helpers widen together (Hor+).
+- **The targets** (`PS3RECOMP_RT_ASPECT`, `rsx_res_axis.h` in the fork): the
+  16:9 family of render targets is drawn wider than the guest knows, so
+  1280x720 at `RES_SCALE=2` becomes 3440x1440. The game still deals in
+  1280x720.
+- **The HUD** (`PS3RECOMP_UW_HUD`, `rsx_draw_engine.c`): a draw into a
+  display buffer that neither tests depth nor samples the picture is
+  squeezed into the 16:9 band in the middle, through the viewport epilogue
+  and its scissor. No shader changes. A quad of a few vertices that spans
+  the whole width is found by running its vertex program on the CPU
+  (`rsx_vp_eval.h`): over the 3D picture it stays wide (a fade, a letterbox
+  bar), on a frame with no picture it is pillarboxed (the motion comics, the
+  loading screens). A pillarboxed frame is cleared to black first.
+
+The option sets `PS3RECOMP_RT_ASPECT=auto` and `PS3RECOMP_ASPECT=auto`. The
+SPU threads, the backend and the camera each read those once and have to
+agree, so `main` turns `auto` into the monitor's size
+(`port_resolve_aspect_auto`, through SDL) before it starts any thread. An
+explicit value in the environment (`3440x1440`, `21:9`, `2.389`) still wins.
+
+Switches for finding what a frame does wrong:
+
+| Variable | Effect |
+|---|---|
+| `PS3RECOMP_UW_HUD=0` | The HUD stretches with the picture (phase 2 behaviour) |
+| `PS3RECOMP_UW_HUD_LOG=1` | Each new (target, program pair, verdict) once, plus a count every 600 frames |
+| `PS3RECOMP_UW_WIDE=<vp>:<fp>,...` | Program pairs always drawn wide (the hashes the log prints; `<vp>` or `:<fp>` alone also work) |
+| `PS3RECOMP_UW_CENTER=<vp>:<fp>,...` | Program pairs always squeezed |
+| `PS3RECOMP_UW_HUD_TARGETS=<hex>,...` | More colour targets the UI is drawn into |
+| `PS3RECOMP_UW_EVAL=0` | No vertex program on the CPU: full-width quads are squeezed too |
+| `PS3RECOMP_UW_PRECLEAR=0` | No black clear under a pillarboxed frame |
+
+Known gaps:
+
+- Markers placed from world positions (objective icons, the aim lock) are
+  computed in the wide picture and drawn squeezed, so they sit closer to the
+  centre than their object. The fix is a wrap of
+  `CView::POS_SCREEN_FROM_WORLD` (0x4E2FC0) with the 16:9 tan_x, which needs
+  a rebuild of its chunk.
+- UI drawn into an offscreen target of the 16:9 family and composited
+  afterwards stays stretched unless that target is named in
+  `PS3RECOMP_UW_HUD_TARGETS`.
+- A frame the guest writes straight into the display buffer from the CPU
+  or an SPU is stretched like a seeded target.
+- A guest readback of a display buffer (a screenshot for a save) sees the
+  squeezed HUD over the wide picture.
+
 ## Saves
 
 The game loads its save icon once, at boot, through the raw `sys_fs`
