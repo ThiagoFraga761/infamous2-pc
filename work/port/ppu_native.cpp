@@ -282,9 +282,11 @@ template <size_t... I> static void probe_register(std::index_sequence<I...>)
  *   tangent of each half-angle times k, so 1.15 shows 15% more each way. The
  *   in-game menu changes it live (ppu_native_set_fov_scale).
  * PS3RECOMP_ASPECT=a (3440/1440, 3440x1440 or 2.389; default off): the aspect
- *   tan_x is taken with, for views at the game's 16:9. For measuring what a
- *   Hor+ frustum costs the CPU only: the render target stays 1280x720, so the
- *   picture comes out squeezed.
+ *   tan_x is taken with, for views at the game's 16:9. With PS3RECOMP_RT_ASPECT
+ *   at the same shape the targets are drawn that wide and the picture is Hor+
+ *   (the Ultrawide option sets both to "auto", which main turns into the
+ *   monitor's WxH before this is read); alone, the 1280x720 picture comes
+ *   out squeezed.
  * PS3RECOMP_FOV_CUTSCENE=0, PS3RECOMP_FOV_AIM=0: calls from the scripted
  *   camera (CCmAnimated::vf44) or the aim camera (CCmSnipe::vf44) keep the
  *   game's FOV. Best effort: a FOV_TO blend (vf24) is not told apart.

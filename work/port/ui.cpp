@@ -6,6 +6,10 @@
 #include "settings.h"
 #include "ui.h"
 
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+
 #ifdef PS3RECOMP_UI
 
 #include "imgui.h"
@@ -333,6 +337,15 @@ void page_video(port_settings& s)
     }
     if (ImGui::IsItemDeactivatedAfterEdit()) save();
     pin_end(PORT_PIN_FOV);
+    /* From the next start: the targets' size and the camera are set once. */
+    b = s.ultrawide;
+    pin_begin(PORT_PIN_ULTRAWIDE);
+    if (ImGui::Checkbox("Ultrawide (imagem no formato do monitor)", &b)) { s.ultrawide = b; save(); }
+    pin_end(PORT_PIN_ULTRAWIDE);
+    if (const char* a = getenv("PS3RECOMP_RT_ASPECT")) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("agora: %s", a);
+    }
     const int nd = SDL_GetNumVideoDisplays();
     if (nd > 1 && !pinned(PORT_PIN_DISPLAY)) {
         const char* cur = SDL_GetDisplayName(s.display < nd ? s.display : 0);
@@ -348,7 +361,10 @@ void page_video(port_settings& s)
     hint("Resolução e monitor valem a partir da próxima vez que o jogo abrir; o resto, na hora. "
          "FSR 1 amplia quando a imagem é menor que a janela (720p numa tela 1440p); a média por "
          "área reduz quando é maior (4K ou 5K numa tela 1440p). O anti-aliasing também suaviza o HUD do jogo. "
-         "Campo de visão: mais mundo na tela também é mais trabalho para a CPU.");
+         "Campo de visão: mais mundo na tela também é mais trabalho para a CPU. "
+         "Ultrawide (vale na próxima vez que o jogo abrir): o mundo ocupa o monitor inteiro, "
+         "21:9 ou 32:9, e o HUD, os menus e os vídeos ficam no meio, em 16:9. Também pesa na CPU. "
+         "Em monitor 16:9 não muda nada.");
 }
 
 void page_language(port_settings& s)
@@ -577,6 +593,7 @@ std::string restart_note(const port_settings& s)
     if (s.display != g_boot.display) add("monitor");
     if (strcmp(s.voice, g_boot.voice) || strcmp(s.text, g_boot.text)) add("idioma");
     if (s.record_thread != g_boot.record_thread) add("thread de gravação");
+    if (s.ultrawide != g_boot.ultrawide) add("ultrawide");
     return n;
 }
 
@@ -1059,7 +1076,51 @@ void port_ui_wait_start(void)
 
 int port_ui_start_screen(void) { return g_start.load() ? 1 : 0; }
 
+#endif
+
+static void env_put(const char* name, const char* value)
+{
+#ifdef _WIN32
+    _putenv_s(name, value ? value : "");   /* "" removes it */
 #else
+    if (value) setenv(name, value, 1); else unsetenv(name);
+#endif
+}
+
+void port_resolve_aspect_auto(void)
+{
+    const char* rt = getenv("PS3RECOMP_RT_ASPECT");
+    const char* fa = getenv("PS3RECOMP_ASPECT");
+    const bool rt_auto = rt && !strcmp(rt, "auto"), fa_auto = fa && !strcmp(fa, "auto");
+    if (!rt_auto && !fa_auto) return;
+    int w = 0, h = 0;
+#ifdef PS3RECOMP_UI
+    /* The monitor the backend will open the window on (vk_window_open), at
+     * its desktop mode, which is what full screen takes. Video is shut down
+     * again here: the rsx thread brings it up for itself. */
+    const char* win = getenv("PS3RECOMP_VK_WINDOW");
+    if (win && win[0] && win[0] != '0' && SDL_InitSubSystem(SDL_INIT_VIDEO) == 0) {
+        int disp = 0;
+        const char* e = getenv("PS3RECOMP_VK_DISPLAY");
+        if (e && *e) disp = atoi(e);
+        if (disp < 0 || disp >= SDL_GetNumVideoDisplays()) disp = 0;
+        SDL_DisplayMode dm;
+        if (SDL_GetDesktopDisplayMode(disp, &dm) == 0) { w = dm.w; h = dm.h; }
+        SDL_QuitSubSystem(SDL_INIT_VIDEO);
+    }
+#endif
+    /* Wider than 16:9 by more than 1%: a 16:10 or a 16:9 monitor stays as it was. */
+    const bool wide = w > 0 && h > 0 && (long long)w * 900 > (long long)h * 1616;
+    char v[32];
+    snprintf(v, sizeof v, "%dx%d", w, h);
+    if (rt_auto) env_put("PS3RECOMP_RT_ASPECT", wide ? v : nullptr);
+    if (fa_auto) env_put("PS3RECOMP_ASPECT", wide ? v : nullptr);
+    if (wide) fprintf(stderr, "[ui] ultrawide: the picture at the monitor's %s\n", v);
+    else if (w > 0) fprintf(stderr, "[ui] ultrawide: the monitor is %s, no wider than 16:9; the picture stays 16:9\n", v);
+    else fprintf(stderr, "[ui] ultrawide: no monitor to take the shape of; the picture stays 16:9\n");
+}
+
+#ifndef PS3RECOMP_UI
 
 void port_ui_init(int, char**) {}
 void port_ui_backend_ready(void) {}
