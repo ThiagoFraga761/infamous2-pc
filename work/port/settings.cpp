@@ -2,6 +2,7 @@
 #include "settings.h"
 
 #include <cerrno>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -139,6 +140,7 @@ int port_settings_load(port_settings* s, const char* path)
             else if (k == "upscale") set_name(&s->upscale, v, k_up_names, 2);
             else if (k == "downscale") set_name(&s->downscale, v, k_down_names, 2);
             else if (k == "sharpen") set_sharpen(&s->sharpen, v);
+            else if (k == "fov") set_int(&s->fov, v, 0, 30);
         } else if (section == "language") {
             if (k == "voice" && voice_known(v.c_str())) snprintf(s->voice, sizeof s->voice, "%s", v.c_str());
             else if (k == "text" && lang_known(v.c_str())) snprintf(s->text, sizeof s->text, "%s", v.c_str());
@@ -168,6 +170,7 @@ int port_settings_save(const port_settings* in, const char* path)
     if (s_pinned & PORT_PIN_VSYNC)         out.vsync = s_file.vsync;
     if (s_pinned & PORT_PIN_STRETCH)       out.stretch = s_file.stretch;
     if (s_pinned & PORT_PIN_DISPLAY)       out.display = s_file.display;
+    if (s_pinned & PORT_PIN_FOV)           out.fov = s_file.fov;
     if (s_pinned & PORT_PIN_VOICE)         memcpy(out.voice, s_file.voice, sizeof out.voice);
     if (s_pinned & PORT_PIN_TEXT)          memcpy(out.text, s_file.text, sizeof out.text);
     if (s_pinned & PORT_PIN_FPS_LIMIT)     out.fps_limit = s_file.fps_limit;
@@ -206,6 +209,7 @@ int port_settings_save(const port_settings* in, const char* path)
             "upscale = %s        ; picture smaller than the window: bilinear, fsr1\n"
             "downscale = %s      ; picture larger than the window: bilinear, area\n"
             "sharpen = %s        ; auto (0.8 after fsr1), or 0 (off) to 1\n"
+            "fov = %d            ; field of view, %% wider than the game's (0..30)\n"
             "\n[language]\n"
             "voice = %s\n"
             "text = %s\n"
@@ -221,7 +225,7 @@ int port_settings_save(const port_settings* in, const char* path)
             "enabled = %s ; mod folders under mods/, in load order (later wins)\n",
             s->scale, s->fullscreen, s->vsync, s->stretch, s->display,
             k_aa_names[s->post_aa], k_up_names[s->upscale], k_down_names[s->downscale],
-            sharpen_text(s->sharpen).c_str(),
+            sharpen_text(s->sharpen).c_str(), s->fov,
             s->voice, s->text, s->fps_limit, s->fps_counter, s->record_thread,
             s->skip_launcher, s->fullres_particles, s->aniso, s->mods_on);
     const int ok = fclose(f) == 0;
@@ -268,6 +272,11 @@ unsigned port_settings_from_env(port_settings* s)
     if ((v = getenv("PS3RECOMP_VK_PRESENT")))    { s->vsync = !strcmp(v, "fifo"); pin |= PORT_PIN_VSYNC; }
     if ((v = getenv("PS3RECOMP_VK_STRETCH")))    { s->stretch = env_on(v); pin |= PORT_PIN_STRETCH; }
     if ((v = getenv("PS3RECOMP_VK_DISPLAY")))    { s->display = atoi(v) < 0 ? 0 : atoi(v); pin |= PORT_PIN_DISPLAY; }
+    if ((v = getenv("PS3RECOMP_FOV_SCALE"))) {
+        const long p = lround((strtod(v, nullptr) - 1.0) * 100.0);
+        s->fov = p < 0 ? 0 : p > 30 ? 30 : (int)p;
+        pin |= PORT_PIN_FOV;
+    }
     if ((v = getenv("PS3_VOICE_LANG")) && voice_known(v)) {
         snprintf(s->voice, sizeof s->voice, "%s", v); pin |= PORT_PIN_VOICE;
     }
@@ -320,6 +329,8 @@ void port_settings_export(const port_settings* s)
     put("PS3RECOMP_DOWNSCALE", k_down_names[s->downscale]);
     put("PS3RECOMP_SHARPEN", sharpen_text(s->sharpen).c_str());
     snprintf(b, sizeof b, "%d", s->display);       put("PS3RECOMP_VK_DISPLAY", b);
+    /* Unset at 0: the SetFov wrap (ppu_native.cpp) then stays off. */
+    if (s->fov) { snprintf(b, sizeof b, "%.2f", 1.0 + s->fov / 100.0); put("PS3RECOMP_FOV_SCALE", b); }
     put("PS3_VOICE_LANG", s->voice);
     put("PS3_TEXT_LANG", s->text);
     /* The console language the game picks its pair by: the text's where the

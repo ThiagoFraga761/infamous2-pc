@@ -20,6 +20,9 @@
  * no line an SPU holds a reservation on. Writes are checked again after they
  * land and told through vm_store_coh_notify, as VM_ST_INL does.
  *
+ * One entry is a wrap rather than a stand-in: CView::SetFov runs its lifted
+ * body with other inputs, for the adjustable field of view (see below).
+ *
  * The same file switches the lift's native blocks (hot loops inside functions
  * too big to replace, patched in by the same post-pass): g_ppu_native_blocks.
  *
@@ -32,12 +35,14 @@
 #include "ppu_recomp.h"
 #include "ppu_native.h"
 
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <atomic>
+#include <mutex>
 #include <utility>
 #include <vector>
 
@@ -243,9 +248,224 @@ template <size_t... I> static void probe_register(std::index_sequence<I...>)
     (ppu_native_register(s_probe_addr[I], probe_fn<I>), ...);
 }
 
+/* ---- CView::SetFov (func_0043E370): the field of view ------------------- */
+
+/* The camera is a CView (vtable 0x008F0FD0; the water's reflection view is a
+ * CViewReflection, 0x008F1468, with the same SetFov and projection). SetFov
+ * takes the vertical FOV in radians in f1. When it equals +0x29C it returns at
+ * once; otherwise it stores it there, writes tan_y = tan(fov/2) to +0x2AC and
+ * tan_x = tan_y * aspect(+0x2A4) to +0x2A8, and runs virtual slots #27 (the
+ * projection at +0xF0, from +0x2A8/+0x2AC and the clip planes) and #28. Those
+ * two tangents are what the projection, the frustum the culling jobs get and
+ * the screen<->world helpers (aiming included) read, so changing them here
+ * widens all of it together.
+ *
+ * The wrap runs the lifted body with f1 = 2*atan(k*tan(fov/2)) -- and, for
+ * PS3RECOMP_ASPECT, with +0x2A4 forced for the call -- then puts the game's
+ * own FOV back in +0x29C and its aspect in +0x2A4. The game reads +0x29C back:
+ * CView::vf24 interpolates FOV_TO from it, 0x43E43C derives the LOD factor
+ * from it, the scripts' FIELD_OF_VIEW returns it. A scaled value left there
+ * would be scaled again on the next change and drift. Only the tangents and
+ * what vf27/vf28 built from them differ from the game's; the one other field
+ * vf27 writes, +0x298 (sqrt(1 + aspect^2) * tan_y * near + 1, the near
+ * plane's corner), follows the tangents, as it would for a game-set FOV.
+ *
+ * The game calls SetFov every frame with an unchanged FOV and the body then
+ * returns early, so a view keeps the tangents its last real change computed.
+ * Each view remembers which settings those were (a generation, 0 for the
+ * game's own), and a view whose generation is not the one wanted -- the
+ * scale changed in the menu, or a filtered camera set it -- is recomputed once
+ * on its next call, the early return defeated by putting a different value
+ * in +0x29C just for the call.
+ *
+ * PS3RECOMP_FOV_SCALE=k (default 1, the lifted code untouched; 0.5..2): the
+ *   tangent of each half-angle times k, so 1.15 shows 15% more each way. The
+ *   in-game menu changes it live (ppu_native_set_fov_scale).
+ * PS3RECOMP_ASPECT=a (3440/1440, 3440x1440 or 2.389; default off): the aspect
+ *   tan_x is taken with, for views at the game's 16:9. For measuring what a
+ *   Hor+ frustum costs the CPU only: the render target stays 1280x720, so the
+ *   picture comes out squeezed.
+ * PS3RECOMP_FOV_CUTSCENE=0, PS3RECOMP_FOV_AIM=0: calls from the scripted
+ *   camera (CCmAnimated::vf44) or the aim camera (CCmSnipe::vf44) keep the
+ *   game's FOV. Best effort: a FOV_TO blend (vf24) is not told apart.
+ * PS3RECOMP_FOV_LOG=1: a [fov] line a second for each view SetFov sees, with
+ *   the FOV the game asked for, the one drawn and tan_x/tan_y.
+ * PS3RECOMP_NATIVE_PPU_OFF=0043E370 takes the wrap out altogether. */
+extern void func_0043E370(ppu_context*);
+
+static const uint32_t k_vt_view = 0x008F0FD0u, k_vt_reflection = 0x008F1468u;
+static const uint32_t k_cm_animated = 0x0008ED14u, k_cm_animated_n = 0x530u;   /* CCmAnimated::vf44 */
+static const uint32_t k_cm_snipe = 0x00093D7Cu, k_cm_snipe_n = 0x11A8u;        /* CCmSnipe::vf44 */
+
+struct fov_view { uint32_t ea, gen, log_s; };
+static std::mutex s_fov_mu;
+/* -1 before the environment is read (the ini is exported after the static
+ * constructors run), 0 nothing to do, 1 on. */
+static std::atomic<int> s_fov_state{-1};
+static float s_fov_k = 1.0f, s_fov_aspect = 0.0f;
+static int s_fov_cutscene = 1, s_fov_aim = 1, s_fov_log = 0;
+static uint32_t s_fov_gen = 1;
+static fov_view s_fov_views[32];
+static unsigned s_fov_next;
+static __thread uint32_t t_fov_view;   /* the view whose lifted SetFov this thread is running */
+
+static float fov_rdf(uint32_t ea)
+{
+    const uint32_t b = vm_read32(ea);
+    float f;
+    memcpy(&f, &b, 4);
+    return f;
+}
+static void fov_wrf(uint32_t ea, float f)
+{
+    uint32_t b;
+    memcpy(&b, &f, 4);
+    vm_write32(ea, b);
+}
+static float fov_clamp_k(float k)
+{
+    if (!(k > 0.0f)) return 1.0f;
+    return k < 0.5f ? 0.5f : k > 2.0f ? 2.0f : k;
+}
+/* "2.389", "3440/1440", "3440x1440" or "21:9"; 0 when it is none of those. */
+static float fov_parse_aspect(const char* v)
+{
+    char* e;
+    double a = strtod(v, &e);
+    if (e != v && (*e == '/' || *e == 'x' || *e == 'X' || *e == ':')) {
+        const double b = strtod(e + 1, nullptr);
+        a = b > 0.0 ? a / b : 0.0;
+    }
+    return a > 0.5 && a < 8.0 ? (float)a : 0.0f;
+}
+static void fov_read_env_locked(void)
+{
+    const char* v;
+    if ((v = getenv("PS3RECOMP_FOV_SCALE"))) s_fov_k = fov_clamp_k(strtof(v, nullptr));
+    if ((v = getenv("PS3RECOMP_ASPECT"))) s_fov_aspect = fov_parse_aspect(v);
+    s_fov_cutscene = !(v = getenv("PS3RECOMP_FOV_CUTSCENE")) || atoi(v) != 0;
+    s_fov_aim = !(v = getenv("PS3RECOMP_FOV_AIM")) || atoi(v) != 0;
+    s_fov_log = (v = getenv("PS3RECOMP_FOV_LOG")) && atoi(v) != 0;
+}
+static void fov_announce_locked(void)
+{
+    fprintf(stderr, "[fov] scale %.3f, aspect %s%.4f, cutscenes %s, aim %s\n", s_fov_k,
+            s_fov_aspect > 0.0f ? "forced " : "the game's, ", s_fov_aspect > 0.0f ? s_fov_aspect : 16.0f / 9.0f,
+            s_fov_cutscene ? "too" : "kept", s_fov_aim ? "too" : "kept");
+}
+static int fov_init(void)
+{
+    std::lock_guard<std::mutex> g(s_fov_mu);
+    int st = s_fov_state.load(std::memory_order_relaxed);
+    if (st >= 0) return st;
+    fov_read_env_locked();
+    st = s_fov_k != 1.0f || s_fov_aspect > 0.0f || s_fov_log;
+    if (st) fov_announce_locked();
+    s_fov_state.store(st, std::memory_order_release);
+    return st;
+}
+static fov_view* fov_find_locked(uint32_t ea, int make)
+{
+    for (fov_view& v : s_fov_views)
+        if (v.ea == ea) return &v;
+    if (!make) return nullptr;
+    /* A view evicted here reads as generation 0 later: at worst one extra
+     * recompute on its next call. */
+    fov_view* v = &s_fov_views[s_fov_next++ % (sizeof s_fov_views / sizeof s_fov_views[0])];
+    *v = fov_view{ea, 0, 0};
+    return v;
+}
+static void fov_log_locked(uint32_t v, uint32_t vt, uint32_t lr)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    fov_view* fv = fov_find_locked(v, 1);
+    if (fv->log_s == (uint32_t)ts.tv_sec) return;
+    fv->log_s = (uint32_t)ts.tv_sec;
+    const float game = fov_rdf(v + 0x29C), ty = fov_rdf(v + 0x2AC), tx = fov_rdf(v + 0x2A8), a = fov_rdf(v + 0x2A4);
+    const double deg = 180.0 / 3.14159265358979323846;
+    fprintf(stderr, "[fov] view %08X %s lr %08X game %.2f deg drawn %.2f x %.2f deg tan_y %.5f tan_x %.5f "
+            "x/y %.4f aspect %.4f gen %u\n", v, vt == k_vt_view ? "CView" : "CViewReflection", lr, game * deg,
+            2.0 * atan(ty) * deg, 2.0 * atan(tx) * deg, ty, tx, ty != 0.0f ? tx / ty : 0.0f, a, fv->gen);
+}
+
+static int nat_setfov(ppu_context* c)
+{
+    int st = s_fov_state.load(std::memory_order_acquire);
+    if (__builtin_expect(st < 0, 0)) st = fov_init();
+    const uint32_t v = (uint32_t)c->gpr[3];
+    if (!st || v == t_fov_view) return 0;   /* off, or the lifted body we are running */
+    const uint32_t vt = vm_read32(v);
+    if (vt != k_vt_view && vt != k_vt_reflection) return 0;
+    const uint32_t lr = (uint32_t)c->lr;
+    const double f = c->fpr[1];
+    const float stored = fov_rdf(v + 0x29C);
+
+    std::unique_lock<std::mutex> g(s_fov_mu);
+    const bool keep = (!s_fov_cutscene && lr - k_cm_animated < k_cm_animated_n) ||
+                      (!s_fov_aim && lr - k_cm_snipe < k_cm_snipe_n);
+    const float k = keep ? 1.0f : s_fov_k, aspect = keep ? 0.0f : s_fov_aspect;
+    const uint32_t want = k != 1.0f || aspect > 0.0f ? s_fov_gen : 0;
+    const fov_view* fv = fov_find_locked(v, 0);
+    const uint32_t have = fv ? fv->gen : 0;
+    /* What the lifted code would do on its own is right: the game's tangents
+     * are wanted and the view has them, or the FOV is unchanged and the view
+     * already has the wanted ones (the body's early return). */
+    if ((want == 0 && have == 0) || ((double)stored == f && have == want)) {
+        if (s_fov_log) fov_log_locked(v, vt, lr);
+        return 0;
+    }
+    const int log = s_fov_log;
+    g.unlock();
+
+    double fe = f;
+    if (k != 1.0f && f > 0.0 && f < 3.14159265358979323846) {
+        fe = (double)(float)(2.0 * atan(k * tan(f * 0.5)));
+        if (fe > 3.0) fe = 3.0;   /* ~172 deg: past that the projection degenerates */
+    }
+    const uint32_t a_bits = vm_read32(v + 0x2A4);
+    float a_game;
+    memcpy(&a_game, &a_bits, 4);
+    const bool force_a = aspect > 0.0f && fabsf(a_game - 16.0f / 9.0f) < 1e-3f;
+    if (force_a) fov_wrf(v + 0x2A4, aspect);
+    /* An unchanged FOV with stale tangents: the body must not return early. */
+    if ((double)stored == fe) fov_wrf(v + 0x29C, nextafterf(stored, INFINITY));
+    c->fpr[1] = fe;
+    const uint32_t outer = t_fov_view;
+    t_fov_view = v;
+    func_0043E370(c);
+    t_fov_view = outer;
+    fov_wrf(v + 0x29C, (float)f);
+    if (force_a) vm_write32(v + 0x2A4, a_bits);
+
+    g.lock();
+    if (fov_view* w = fov_find_locked(v, want != 0)) w->gen = want;
+    if (log) fov_log_locked(v, vt, lr);
+    return 1;
+}
+
+/* The in-game menu: a new scale for every view, applied on each one's next
+ * SetFov. Once called, the wrap stays on, so going back to 1 also puts the
+ * game's tangents back. */
+extern "C" void ppu_native_set_fov_scale(float k)
+{
+    std::lock_guard<std::mutex> g(s_fov_mu);
+    if (s_fov_state.load(std::memory_order_relaxed) < 0) fov_read_env_locked();
+    k = fov_clamp_k(k);
+    if (k == s_fov_k && s_fov_state.load(std::memory_order_relaxed) == 1) return;
+    s_fov_k = k;
+    if (++s_fov_gen == 0) s_fov_gen = 1;
+    fov_announce_locked();
+    s_fov_state.store(1, std::memory_order_release);
+}
+
 __attribute__((constructor)) static void ppu_native_init(void)
 {
     for (const ppu_native_desc& d : s_funcs) ppu_native_register_desc(&d);
+    /* Not a stand-in but a wrap around the lifted body, so nothing to compare
+     * (no `lifted`): the compare mode just runs it. */
+    static const ppu_native_desc setfov = { 0x0043E370u, "CView::SetFov", nat_setfov, nullptr, nullptr, 0 };
+    ppu_native_register_desc(&setfov);
     if (getenv("PS3RECOMP_PPU_PROBE")) probe_register(std::make_index_sequence<N_PROBES>{});
     const char* e = getenv("PS3RECOMP_NATIVE_PPU");
     g_ppu_native_blocks = !e || atoi(e) != 0;

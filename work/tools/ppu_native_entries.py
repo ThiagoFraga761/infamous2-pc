@@ -52,6 +52,7 @@ WORK = os.path.dirname(HERE)
 # costs one cached lookup).
 NATIVE_ENTRIES = [
     0x005DEF90,     # memcpy(dst, src, n)
+    0x0043E370,     # CView::SetFov(view, fov): wrapped for the adjustable FOV
 ]
 
 # Hooks for port/ppu_native.cpp's call-count probes (PS3RECOMP_PPU_PROBE=1):

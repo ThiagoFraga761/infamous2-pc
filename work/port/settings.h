@@ -22,6 +22,7 @@ typedef struct port_settings {
     int upscale;        /* a frame smaller than the window: 0 bilinear, 1 FSR 1 */
     int downscale;      /* a frame larger than the window: 0 bilinear, 1 area average */
     int sharpen;        /* RCAS in thousandths, 0..1000; -1 automatic */
+    int fov;            /* field of view, percent wider than the game's (0..30): PS3RECOMP_FOV_SCALE */
     /* [language] */
     char voice[24];     /* the voice pack: cache/psarc/<voice>.psarc */
     char text[24];      /* the text pack: cache/psarc/<text>_text.psarc */
@@ -55,8 +56,7 @@ enum {
     PORT_PIN_SCALE = 1 << 0, PORT_PIN_FULLSCREEN = 1 << 1, PORT_PIN_VSYNC = 1 << 2,
     PORT_PIN_STRETCH = 1 << 3, PORT_PIN_DISPLAY = 1 << 4, PORT_PIN_VOICE = 1 << 5,
     PORT_PIN_TEXT = 1 << 6, PORT_PIN_FPS_LIMIT = 1 << 7, PORT_PIN_RECORD_THREAD = 1 << 8,
-    PORT_PIN_PARTICLES = 1 << 9, PORT_PIN_ANISO = 1 << 10,
-    /* 1 << 11 is left for PORT_PIN_FOV (feat/fov). */
+    PORT_PIN_PARTICLES = 1 << 9, PORT_PIN_ANISO = 1 << 10, PORT_PIN_FOV = 1 << 11,
     PORT_PIN_POST_AA = 1 << 12, PORT_PIN_UPSCALE = 1 << 13, PORT_PIN_DOWNSCALE = 1 << 14,
     PORT_PIN_SHARPEN = 1 << 15,
 };

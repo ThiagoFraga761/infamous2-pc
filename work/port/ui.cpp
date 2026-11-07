@@ -53,6 +53,7 @@ extern "C" void rsx_vulkan_backend_set_upscale(int mode);
 extern "C" void rsx_vulkan_backend_set_downscale(int mode);
 extern "C" void rsx_vulkan_backend_set_sharpen(float s);
 extern "C" int rsx_vulkan_backend_fullscreen(void);
+extern "C" void ppu_native_set_fov_scale(float k);   /* ppu_native.cpp: CView::SetFov */
 extern "C" unsigned ppu_boot_frames_presented(void);
 extern "C" volatile int g_savedata_title;   /* libs/system/cellSaveData.c */
 extern "C" char g_savedata_load[32];        /* ...and the save to continue */
@@ -315,6 +316,15 @@ void page_video(port_settings& s)
     if (ImGui::Checkbox("Esticar a imagem (sem barras pretas)", &b)) {
         s.stretch = b; rsx_vulkan_backend_set_stretch(b); save();
     }
+    /* Live: each camera takes the new scale on its next SetFov, which the game
+     * calls every frame. Saved once the slider is let go, not on every step. */
+    int fov = s.fov;
+    pin_begin(PORT_PIN_FOV);
+    if (ImGui::SliderInt("Campo de visão", &fov, 0, 30, fov ? "+%d%%" : "Do jogo", ImGuiSliderFlags_AlwaysClamp)) {
+        s.fov = fov; ppu_native_set_fov_scale(1.0f + fov / 100.0f);
+    }
+    if (ImGui::IsItemDeactivatedAfterEdit()) save();
+    pin_end(PORT_PIN_FOV);
     const int nd = SDL_GetNumVideoDisplays();
     if (nd > 1 && !pinned(PORT_PIN_DISPLAY)) {
         const char* cur = SDL_GetDisplayName(s.display < nd ? s.display : 0);
@@ -329,7 +339,8 @@ void page_video(port_settings& s)
     }
     hint("Resolução e monitor valem a partir da próxima vez que o jogo abrir; o resto, na hora. "
          "FSR 1 amplia quando a imagem é menor que a janela (720p numa tela 1440p); a média por "
-         "área reduz quando é maior (4K ou 5K numa tela 1440p). O anti-aliasing também suaviza o HUD do jogo.");
+         "área reduz quando é maior (4K ou 5K numa tela 1440p). O anti-aliasing também suaviza o HUD do jogo. "
+         "Campo de visão: mais mundo na tela também é mais trabalho para a CPU.");
 }
 
 void page_language(port_settings& s)

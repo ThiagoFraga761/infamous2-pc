@@ -22,7 +22,7 @@ int main()
     CHECK(port_settings_load(&s, path.c_str()) == 0);          /* missing: defaults */
     CHECK(s.scale == 1 && s.record_thread == 1 && !strcmp(s.voice, "brazilian"));
 
-    s.scale = 3; s.fullscreen = 1; s.vsync = 1; s.stretch = 1; s.display = 2;
+    s.scale = 3; s.fullscreen = 1; s.vsync = 1; s.stretch = 1; s.display = 2; s.fov = 15;
     snprintf(s.voice, sizeof s.voice, "english"); snprintf(s.text, sizeof s.text, "brazilian");
     s.fps_limit = 60; s.fps_counter = 1; s.record_thread = 0; s.skip_launcher = 1;
     CHECK(port_settings_save(&s, path.c_str()) == 0);            /* creates sub/ */
@@ -56,7 +56,7 @@ int main()
         setenv("PS3RECOMP_RES_SCALE", "3", 1); unsetenv("PS3_VOICE_LANG"); unsetenv("PS3_TEXT_LANG");
         unsetenv("PS3RECOMP_VK_FULLSCREEN"); unsetenv("PS3RECOMP_VK_PRESENT"); unsetenv("PS3RECOMP_VK_STRETCH");
         unsetenv("PS3RECOMP_VK_DISPLAY"); unsetenv("PS3RECOMP_FPS_LIMIT"); setenv("PS3RECOMP_BE_THREAD", "0", 1);
-        unsetenv("PS3RECOMP_FULLRES_PARTICLES"); unsetenv("PS3RECOMP_ANISO");
+        unsetenv("PS3RECOMP_FULLRES_PARTICLES"); unsetenv("PS3RECOMP_ANISO"); unsetenv("PS3RECOMP_FOV_SCALE");
         unsetenv("PS3RECOMP_POST_AA"); unsetenv("PS3RECOMP_UPSCALE");
         unsetenv("PS3RECOMP_DOWNSCALE"); unsetenv("PS3RECOMP_SHARPEN");
         port_settings b;
@@ -171,6 +171,36 @@ int main()
         CHECK(c.post_aa == 2 && c.sharpen == 250);
         unsetenv("PS3RECOMP_POST_AA"); unsetenv("PS3RECOMP_UPSCALE");
         unsetenv("PS3RECOMP_DOWNSCALE"); unsetenv("PS3RECOMP_SHARPEN");
+        remove(p5.c_str());
+    }
+    /* field of view: clamped in the file, the scale's percent from the
+     * environment, exported only when it widens anything (last: export
+     * remembers what it set, which the restart check above relies on) */
+    {
+        const std::string p5 = std::string(dir) + "/fov.ini";
+        FILE* g = fopen(p5.c_str(), "w");
+        fputs("[video]\nfov = 45\n", g);
+        fclose(g);
+        port_settings a;
+        CHECK(port_settings_load(&a, p5.c_str()) == 1 && a.fov == 0);
+        g = fopen(p5.c_str(), "w");
+        fputs("[video]\nfov = 20\n", g);
+        fclose(g);
+        CHECK(port_settings_load(&a, p5.c_str()) == 1 && a.fov == 20);
+        setenv("PS3RECOMP_FOV_SCALE", "1.1", 1);
+        CHECK((port_settings_from_env(&a) & PORT_PIN_FOV) && a.fov == 10);
+        CHECK(port_settings_save(&a, p5.c_str()) == 0);       /* pinned: the file keeps 20 */
+        port_settings b;
+        CHECK(port_settings_load(&b, p5.c_str()) == 1 && b.fov == 20);
+        unsetenv("PS3RECOMP_FOV_SCALE");
+        port_settings_from_env(&b);
+        b.fov = 0;
+        port_settings_export(&b);
+        CHECK(getenv("PS3RECOMP_FOV_SCALE") == nullptr);
+        b.fov = 25;
+        port_settings_export(&b);
+        CHECK(getenv("PS3RECOMP_FOV_SCALE") && !strcmp(getenv("PS3RECOMP_FOV_SCALE"), "1.25"));
+        unsetenv("PS3RECOMP_FOV_SCALE");
         remove(p5.c_str());
     }
 
