@@ -1172,7 +1172,7 @@ static NOINL void dec_exact_uv(uint8_t* ls, uint32_t rec, uint32_t stride, uint3
  * out, so every operand and result is a normal single or +0 and x86 under
  * CSR_FAST rounds them like the helpers. The unit vectors depend on 20 input
  * bits only, and the harness checks the fast decode against the exact one on
- * all of them (work/runs/edge, t_uv): m stays within +-0.7072 and s = 1 - t in
+ * all of them (t_uv, RESEARCH.md 7.1): m stays within +-0.7072 and s = 1 - t in
  * (0, 1], so every value is a normal single and h is positive. s = +0 would
  * make frsqest's estimate an exponent-255 value, whose product with +0 is +0
  * on the SPU and a NaN on x86; it never occurs on this grid, but h is forced

@@ -14,8 +14,8 @@ out of the repo (`work/runs/edge/` is untracked).
 | 0xD0A8 | 3.2% | skinning (+0x6E98 renormalise, 0.66%) | yes | 4.5-6.5x on 64..256 vertices |
 | 0xA798 | 1.25% | triangle culling (+0xA3C8, 0.9%) | yes | 2.2-3.1x (whole call) |
 | 0xA3C8 | 0.9% | transform for culling | yes | 3.5-4x |
-| 0x4448 | 1.7% | vertex decompression, special formats | no (section 5) | |
-| 0x9C20 | 0.65% | inner loop of vertex compression | no (section 6) | |
+| 0x4448 | 1.7% (14.2% of SPU time in Nov 2026, merged chunks) | vertex decompression, special formats | yes (section 5), opt-in | 4-6x on 64..300 vertices |
+| 0x9C20 | 0.65% (5.5% in Nov 2026) | inner loop of vertex compression, format 1 | yes, as the chunk 0x99E8 (section 6), opt-in | 2.4-3.3x for the whole of 0x9780 |
 
 All numbers are best-of-N on the harness, lifted code built with the port's
 SPU flags (`-O2 -march=x86-64-v4`), same machine, `nice -n 19`.
@@ -216,38 +216,91 @@ where the kernel falls back.
 - Then the u16 at S+0x1A0 = 3 * kept, S+0x58 = the end rounded to 16, r3 =
   3 * kept.
 
-## 5. 0x4448: vertex decompression (not replaced)
+## 5. 0x4448: vertex decompression
 
-The function patches the format's attribute table from the stream descriptor,
-then decompresses through the generic attribute loop 0xAD48 (indirect jumps
-per attribute format), or, for one format pair (primary: 2 attributes, ids 1
-and 2; optional secondary: 1 attribute, id 3), through two inline loops
-(0x4A30, 9 bytes per vertex; 0x4D18, 3 bytes per vertex). Those loops are the
-self time. Established with `t_dec.c` (it drives the lifted code down that
-path with `SHOW=1 B=.. PAT=..`):
+`r3` = S, `r4` = the segment's format info T, `r5` = the stream descriptor D.
+The function checks the format pair on the aligned quads: primary format at
+D+44 with byte 0 = 2, byte 11 = 1 and byte 19 = 2, and the secondary at D+0x30
+either null or with byte 0 = 1 and byte 11 = 3. Any other pair takes the
+generic attribute loop 0xAD48 (indirect jumps per attribute format), which
+stays lifted: the native kernel falls back for it. The special pair has two
+inline loops (0x4A30, 9 bytes per vertex at D+20; 0x4D18, 3 bytes per vertex at
+D+24), which `--merge-chunks` folds into the 0x4448 symbol; they are its self
+time.
 
-- It allocates free uniform tables (S+0x170 slot bytes get ids 1, 2, 3),
-  points S+0x5C (positions), S+0x60 (normals) and S+0x64 (tangents) at them,
-  and sets S+0x58 to the input pointer.
-- Position c = (u16 BE + int32 offset at X+4c) * 2^(b-16), b = byte at r4+0x1B,
-  computed as csflt(arithmetic shift right by 16-b) + cuflt(shift left by
-  16+b, scale 2^-32), lane 3 = 1.0.
-- Normal and tangent: 24 bits, two 10-bit components dequantised through the
-  mantissa of 1.0 and an fma to about [-0.707, 0.707], the third rebuilt as
-  sqrt(1 - a^2 - b^2) with frsqest/fi, axis and sign selected by the low bits.
-  The bit assignment is not pinned completely yet.
+What it does, pinned by `t_dec` with 0 differences (section 7.1):
 
-Not replaced in this round; the native kernel would follow the same pattern
-(16 vertexes per AVX-512 step, exact path for odd floats).
+- Takes the first free uniform table slots (bytes at S+0x170 equal to 0) in
+  order and gives them ids 1, 2 and, with a secondary format, 3; the pointer of
+  slot i is the word at S+0x10+4i. S+0x5C, S+0x60 and S+0x64 get the three
+  pointers (U1, U2, U3), S+0x54 and S+0x58 the input pointer P (the second
+  through the tail call to 0x64A8). The usual frame: r80..r82 at sp-0x10..-0x30,
+  r0 at sp+0x10, the back chain at sp-0x50.
+- Works on n2 = the count (S+8) rounded up to two; a count of 0 would make the
+  loops run about 2^27 times, so the kernel falls back.
+- Position of vertex i (record P+9i): v_c = u16 BE at bytes 2c..2c+1 plus the
+  int32 X[c] (four words at the pointer D+40, each read like rotqby does),
+  b = the byte at T+0x1B, position_c = fa(csflt(v_c >> (16-b), 155),
+  cuflt(v_c << (16+b), 123)) (arithmetic and logical shifts with the SPU's
+  count rules), lane 3 = 1.0. Stored at U1+16i for every i < n2.
+- Unit vector, from three bytes t0 t1 t2 (bytes 6..8 of the primary record, or
+  the secondary record): a = the top 10 bits, b = the next 10, sel = the low
+  nibble. m = fma(K1, 1.0|a, K2) and the same for b (the 10 bits enter as the
+  mantissa of 1.0; K1 = 0x46352E7C, K2 = 0xC6353150, so m is within +-0.7072).
+  s = fs(1.0, fa(ma^2, mb^2)), h = fm(s, fi(s, frsqest(s))). The vertices go in
+  pairs (A, B) in one quad (ma_A, mb_A, ma_B, mb_B); entry sel of the table at
+  0xF380 is both a selb source and a shuffle mask: its sign bits give h's sign,
+  its words with the top bit cleared place (h, ma, mb) in lanes 0..2, and its
+  lane 3 is the vector's w (+-1.0). Vertex B uses the same mask plus 8 in bytes
+  0..11 (its lanes 2 and 3). Entries 0..11 are three axes x two signs x two
+  handednesses; 12..15 run into the job's error strings.
+- The unit-vector loops are pipelined one pair deep: their first iteration
+  stores two zero quads at U2+16*n2 (and U3+16*n2), past the vectors.
 
-## 6. 0x9C20: vertex compression inner loop (not replaced)
+The native kernel (`edge_dec_core`):
 
-0x9C20 is a chunk of 0x9780 (reached through a jump table on the output
-format: 0x9950, 0x99E8, 0x9D18, 0x9FD8). The case at 0x99E8 packs three
-attributes (found by id in the format table) per vertex: `fma` by scale and
-bias, `cflts` to 2^31 fixed point, per-lane shifts, and byte merges into an
-unaligned output stream (48 bytes per 4 vertices, 40 per... with partial-quad
-merges). Not done in this round.
+- falls back for the generic formats, a zero count, fewer free slots than
+  needed, overlaps between any written span (the outputs, S+0x50..0x6F,
+  S+0x170, the frame) and anything read (P, P2, X, D, S, T, the format
+  quads, the module), or spans past the LS;
+- runs the positions and the unit vectors four vertices per AVX-512 register
+  (one quad each, the output layout), the records gathered with four 16-byte
+  loads and a pshufb; the positions need no bound (integers in, normal
+  singles or +0 out), and the unit vectors were checked against the exact path
+  on all 2^24 inputs (`t_uv`). A group with a selector of 12..15 is redone
+  pair by pair through the helpers; b > 16 takes the exact positions;
+- compares the table at 0xF380 with its own copy on every call.
+
+## 6. 0x99E8: vertex compression, output format 1
+
+0x9780 is the compression function: it returns at once when S byte 0 has bit 4
+set or the count is 0, stores the output pointer O (S+0x58, read by 0x6498) at
+S+0x54, and jumps through the table at 0x991C on the output format S+4 (0x9950,
+0x99E8, 0x9D18, 0x9FD8, 0x98B0; above 4 a callback at S+0xA4). Each case ends at
+0x98B0, which advances S+0x58 by the vertex size (0x83C8: 12, 20, 24, 24, 0)
+times the count, rounded to 16, and returns O.
+
+Case 1 (0x99E8, loop 0x9C18/0x9C20) writes 20 bytes per vertex at O: the three
+floats of the position stream (slot id 1) as they are, then one X11Y11Z10 word
+for each of the streams with ids 2 and 3: per component
+i = cflts(fma(scale, v, bias), 142), scale = (0x3F7FE000, 0x3F7FE000,
+0x3F7FC000) at 0xE920, bias = (0xBA000000, 0xBA000000, 0xBA800000) at 0xE930,
+and the word is (i_z & 0xFFC00000) | (i_y >> 21) << 11 | i_x >> 21 (the shuffles
+at F070 and the rotm by (5, 2, 0) before them amount to this). It runs on
+n2 = the count rounded up to two (r33). The output loop does two vertices per
+step at any alignment: four quads at O+40k, the first merged with what the LS
+holds before O+40k; past the last vertex the last step leaves the pattern
+(n, t, 0, 0) of the last vertex's packed words, repeated from O+40k+32, up to
+the end of its fourth quad.
+
+The kernel is an entry with a continuation (section 8): it reads the
+registers 0x9780 set up (r81 = S, r82 = O, r33 = n2, r26..r44 masks and
+constants) and checks they hold what 0x9780 puts there; it falls back when an
+id is missing from the slots, the output overlaps a stream (with the job's
+read-ahead), S's pointer table or slots or the module, or a span leaves the LS.
+No register the chunk writes is read later: r80 is overwritten at 0x98C0 first,
+r2..r79 are dead (`live.py 98B0`). The fast path does four vertices per
+register; a group with an exponent-255 component goes the exact way.
 
 ## 7. Results
 
@@ -266,6 +319,21 @@ for the cull):
 - **real states from the game** (section 7.4): 400 skinning and 400 cull
   entry states captured in the city, plus the 8 states of the in-game
   compare differences: all native, 0 differences.
+
+- **0x4448 and 0x99E8** (Nov 2026, harness in `~/tools/wt/edge-native-test`:
+  `extract.py` cuts the lifted module down to the functions the tests reach and
+  adds the hooks as `lift_spu.py` does, `mk.sh dec enc uv`):
+  - `t_uv`: all 2^24 unit vectors, fast against exact, 0 differences;
+  - `t_dec N SEED`: random states (1..300 vertices, b mostly 0..16 and
+    sometimes any byte, X at any alignment, random slots, with and without
+    the secondary stream), 0 differences on 3000 + 3000 cases; `SANE=1` keeps
+    the selectors below 12, as meshes do (2000 cases, 0 differences);
+  - `t_enc N SEED MUT`: the whole of 0x9780 with and without the native
+    chunk, O at any alignment, duplicate and missing slot ids, MUT special
+    floats per 1000 (0, 3, 30, 300): 0 differences on 3000 x 3 + 1000 cases;
+  - `mut.py`: 22 single changes, 19 caught; the 3 others are equivalent on the
+    real input domain (s is never 0 or negative on the 10-bit grid; the tail
+    group's mask only guards the zero quads the job writes after it).
 
 ### 7.2 Mutation check
 
@@ -293,6 +361,14 @@ The exact skin path is reached by the 3% mutation run.
 In the randomised runs, which start from a cold LS copy, the totals are 4.5x
 (skin), 3.6x (transform) and 2.8x (cull).
 
+- 0x4448, best of 500, realistic selectors: 64 vertices 1.35 -> 0.35 us
+  (3.9x), 128: 2.46 -> 0.59 us (4.2x), 256: 4.88 -> 1.04 us (4.7x); without
+  the secondary stream 4.1-5.1x. A selector of 12..15 in every group makes it
+  as slow as the lift (exact pairs), which meshes should never do; the stats
+  line counts those groups.
+- 0x9780 as a whole (its fixed part stays lifted): 64 vertices 0.80 -> 0.34 us,
+  128: 1.48 -> 0.51 us, 256: 2.83 -> 0.86 us.
+
 ### 7.4 First in-game run, and what it found
 
 Compare mode in the city: skinning fell back on every call (3.93M), the
@@ -319,7 +395,9 @@ records). Replaying the captures:
   flags (the exact paths call the same helpers as the lift, so they must be
   built the same way).
 - `work/tools/lift_spu.py`:
-  `NATIVE_ENTRIES["jobmod_6d1c65171899_eA2A0"] = [0xD0A8, 0xA3C8, 0xA798]`.
+  `NATIVE_ENTRIES["jobmod_6d1c65171899_eA2A0"] = [0xD0A8, 0xA3C8, 0xA798, 0x4448, (0x99E8, 0x98B0)]`.
+  A pair is an entry with a continuation: when the kernel reports the work
+  done, the lifted chunk transfers to 0x98B0 instead of returning.
 - `PS3RECOMP_NATIVE_EDGE`: 1 (default) on, 0 off, 2 compare: the kernel runs
   on a copy of LS and registers, then the lifted function on the real ones,
   and the whole LS plus r0, r1, r80..r127 are compared. Every 10 s:
@@ -327,13 +405,19 @@ records). Replaying the captures:
   us, lifted us per compared call`. The first 8 differences are logged with
   their LS range; `PS3RECOMP_EDGE_DUMP=dir` also writes the input state of
   each (128 registers then the LS) for `t_replay`.
+- `PS3RECOMP_NATIVE_EDGE_DEC` (0x4448) and `PS3RECOMP_NATIVE_EDGE_ENC`
+  (0x99E8): the same values, off unless set, until a compare run in the game
+  shows no difference. In compare mode the chunk runs lifted up to its
+  continuation, and r80 is left out of the comparison. The stats line adds the
+  groups the exact path redid.
 - `PS3RECOMP_EDGE_CAPTURE=dir[,count[,every]]` writes input states of real
   calls (default 32 per kernel, every 997th call) for `t_replay dir`.
 
 ## 9. Open
 
-- 0x4448 and 0x9C20: same method; 0x4448 needs the special-format path
-  decoded bit by bit (two loops of shifts and mantissa tricks).
+- 0x4448 and 0x99E8 have no in-game compare run yet (opt-in until they do).
+- 0x4448's generic path (0xAD48) and the other compression formats (0x9950,
+  0x9D18, 0x9FD8) stay lifted; 0xC7B8 (3.1%) is not looked at.
 - The cull fast path is bound by gathering 48 records per 16 triangles and by
   the in-place stores; an AoS formulation (area and snap tests on whole
   record quads) would cut the transposes.
