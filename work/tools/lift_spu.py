@@ -74,11 +74,14 @@ JOBBIN_IMAGE_BASE = 250     # after the plugins'
 LIFT_ARGS = ["--local-regs", "--merge-chunks", "--const-bi"] + os.environ.get("SPU_LIFT_EXTRA", "").split()
 # Lifted functions a native replacement may take over (port/ec5f_native.c): the
 # entry calls spu_native_entry, and returns as `bi $r0` does when it reports the
-# work done. Keyed by the lifted image's directory name.
+# work done. Keyed by the lifted image's directory name. An (entry, continuation)
+# pair is for a chunk inside a guest function, such as one case of a jump
+# table: when the native code reports the work done, the lifted code transfers
+# to the continuation instead of returning.
 NATIVE_ENTRIES = {"jobmod_ec5f11015784_e14F90": [0x12C50],
                   "jobmod_2025343b09d0_eFE70": [0x4FE0, 0x17280, 0x16320, 0x16A30, 0x17780, 0x179C0,
                                                 0x1A570, 0x19A20, 0x1C510],
-                  "jobmod_6d1c65171899_eA2A0": [0xD0A8, 0xA3C8, 0xA798],
+                  "jobmod_6d1c65171899_eA2A0": [0xD0A8, 0xA3C8, 0xA798, 0x4448, (0x99E8, 0x98B0)],
                   "jobmod_bc11d5e7b134_e2898": [0x4358],
                   "jobmod_5cfff962445a_e1390": [0x4030],
                   "jobmod_d7096a8ffc1c_e60C0": [0x68D8]}
@@ -174,21 +177,32 @@ def debase(path):
         p.write_text(t2, encoding="utf-8", newline="\n")
 
 
+def native_hook(name, entry):
+    """The function head the hook goes after, and the hook."""
+    a, cont = entry if isinstance(entry, tuple) else (entry, None)
+    head = f"void {name}_spu_func_{a:08X}(spu_context* ctx) {{\n"
+    done = ("SPU_RET(ctx);" if cont is None else
+            f"{{ ctx->pc = 0x{cont:X}; g_spu_trampoline_fn = {name}_spu_func_{cont:08X}; return; }}")
+    hook = (f"    {{ extern int spu_native_entry(spu_context*, uint32_t); "
+            f"if (spu_native_entry(ctx, 0x{a:X}u)) {done} }}\n")
+    return head, hook
+
+
 def add_native_entries(spu):
     for name, addrs in NATIVE_ENTRIES.items():
         p = Path(spu, name, "spu_recomp.c")
         if not p.exists():
             continue
-        src = p.read_text(encoding="utf-8")
-        for a in addrs:
-            head = f"void {name}_spu_func_{a:08X}(spu_context* ctx) {{\n"
-            hook = (f"    {{ extern int spu_native_entry(spu_context*, uint32_t); "
-                    f"if (spu_native_entry(ctx, 0x{a:X}u)) SPU_RET(ctx); }}\n")
+        src = orig = p.read_text(encoding="utf-8")
+        for e in addrs:
+            head, hook = native_hook(name, e)
+            a = e[0] if isinstance(e, tuple) else e
             if head not in src:
                 sys.exit(f"{name}: no function at 0x{a:X} for its native entry")
             if head + hook not in src:
                 src = src.replace(head, head + hook, 1)
-        p.write_text(src, encoding="utf-8", newline="\n")
+        if src != orig:     # an unchanged file keeps its mtime, and the build skips it
+            p.write_text(src, encoding="utf-8", newline="\n")
 
 
 def run(cmd, fatal=True):
