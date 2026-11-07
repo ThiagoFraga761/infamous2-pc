@@ -58,6 +58,7 @@
 !/work/tools/ppu_native_entries.py
 !/work/tools/ppm2png.py
 !/work/tools/rsx_decode.py
+!/work/tools/hitch_classify.py
 !/work/tools/re/
 
 /work/tests/*
