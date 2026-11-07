@@ -8,6 +8,11 @@
  *
  *   0xD0A8  skinning (blend matrices per vertex, transform positions and up to
  *           three more streams, renormalise them; calls 0x6E98, normalise)
+ *   0xA3C8  transform for culling, 0xA798 triangle culling
+ *   0x4448  vertex decompression, the job's one special format pair (u16
+ *           positions with an offset and a scale, 24-bit unit vectors)
+ *   0x99E8  vertex compression for output format 1 (a chunk of 0x9780: three
+ *           floats and two X11Y11Z10 words per vertex)
  *
  * Floats follow the SPU: truncation, denormal operands and results as zero,
  * no infinities. The fast paths run four vertices per AVX-512 register and
@@ -21,6 +26,10 @@
  * NATIVE_ENTRIES). PS3RECOMP_NATIVE_EDGE: 1 (default) on; 0 off; 2 runs the
  * native kernel on a copy of the local store, then the lifted function, and
  * compares the local store and r0, r1, r80-r127, logging any difference.
+ * The decompression and compression kernels are newer and opt-in, each with
+ * its own switch of the same values: PS3RECOMP_NATIVE_EDGE_DEC and
+ * PS3RECOMP_NATIVE_EDGE_ENC (off unless set; PS3RECOMP_NATIVE_EDGE=0 still
+ * turns everything off).
  *
  * Built like the lifted SPU sources (-march=x86-64-v4): it needs AVX-512. */
 #include <stdint.h>
@@ -44,6 +53,9 @@ int g_edge_stat[8];
 #else
 #define EDGE_STAT(i) ((void)0)
 #endif
+/* groups a kernel's exact path redid, for the stats line */
+static unsigned long long g_dec_exact, g_enc_exact;
+#define EDGE_EXACT(c) __atomic_fetch_add(&(c), 1, __ATOMIC_RELAXED)
 #define LSM 0x3FFFFu
 #define LSQ 0x3FFF0u
 #define F1 0x3F800000u
@@ -1069,6 +1081,517 @@ static int edge_cull_core(u128* gpr, uint8_t* ls)
     return 1;
 }
 
+/* ================================================================== 0x4448: vertex decompression
+ *
+ * r3 the job context S, r4 the segment's format info T, r5 the stream
+ * descriptor D. Only the special format pair is native (RESEARCH.md section
+ * 5): primary format with attributes 1 and 2, nine bytes per vertex at
+ * D+20 (three u16 position components, then a 24-bit unit vector), and an
+ * optional secondary format (D+0x30) with attribute 3, three bytes per vertex
+ * at D+24 (another unit vector). Every other format goes through the job's
+ * generic attribute loop, which stays lifted.
+ *
+ * The job takes three free uniform tables (slot bytes at S+0x170 become 1, 2,
+ * 3), points S+0x5C, S+0x60 and S+0x64 at them, and writes per vertex:
+ *   position c = (u16_c + X[c]) * 2^(b-16), as csflt(v >> (16-b)) +
+ *     cuflt(v << (16+b)) * 2^-32, lane 3 = 1.0 (X: four int32 at D+40, b: the
+ *     byte at T+0x1B);
+ *   unit vector: a and b the top two 10-bit fields of the 24 bits, each
+ *     dequantised through the mantissa of 1.0 and fma(m, K1, K2) to about
+ *     [-0.707, 0.707]; the third component sqrt(1 - a^2 - b^2) by frsqest/fi;
+ *     the low nibble indexes a shuffle table at 0xF380 that places the three
+ *     components, gives the rebuilt one its sign and lane 3 its +-1.0.
+ * Vertices go in pairs (the count rounded up to two, so a padding vertex is
+ * decoded from whatever follows the stream); the unit-vector loops are
+ * pipelined one pair deep and their first iteration stores two zero quads
+ * just past the end of the output. */
+#define DEC_TAB 0xF380u
+#define DEC_K1 0x46352E7Cu
+#define DEC_K2 0xC6353150u
+static inline Q splat4(uint32_t x) { return V4(x, x, x, x); }
+static inline uint32_t ls_be16(const uint8_t* ls, uint32_t a) { return (uint32_t)ls[a & LSM] << 8 | ls[(a + 1) & LSM]; }
+
+/* one position, through the helpers in the job's lane layout */
+static inline Q dec_pos_q(const uint8_t* ls, uint32_t rec, Q X, Q shr, Q shl)
+{
+    const Q v = spu_a(V4(ls_be16(ls, rec), ls_be16(ls, rec + 2), ls_be16(ls, rec + 4), 0), X);
+    Q r = spu_fa(spu_csflt(spu_rotma(v, shr), 155), spu_cuflt(spu_shl(v, shl), 123));
+    r._u32[3] = F1;
+    return r;
+}
+/* two unit vectors (records at ra and rb), through the helpers */
+static inline void dec_uv_pair_q(const uint8_t* ls, uint32_t ra, uint32_t rb, Q* na, Q* nb)
+{
+    const uint32_t a0 = ls[ra & LSM], a1 = ls[(ra + 1) & LSM], a2 = ls[(ra + 2) & LSM];
+    const uint32_t b0 = ls[rb & LSM], b1 = ls[(rb + 1) & LSM], b2 = ls[(rb + 2) & LSM];
+    const Q q = V4(F1 | ((a0 << 8 | a1) >> 6), F1 | (((a1 << 8 | a2) >> 4) & 0x3FF),
+                   F1 | ((b0 << 8 | b1) >> 6), F1 | (((b1 << 8 | b2) >> 4) & 0x3FF));
+    const Q m = spu_fma(splat4(DEC_K1), q, splat4(DEC_K2));
+    const Q sq = spu_fm(m, m);
+    const Q s = spu_fs(splat4(F1), spu_fa(sq, spu_shlqbyi(sq, 4)));
+    const Q h = spu_fm(s, spu_fi(s, spu_frsqest(s)));
+    const Q msk_sign = V4(0x80000000u, 0x80000000u, 0x80000000u, 0xFFFFFFFFu);
+    const Q msk_sel = V4(0x7FFFFFFFu, 0x7FFFFFFFu, 0x7FFFFFFFu, 0);
+    const Q base = V4(0, 0, 0, 0x0C0D0E0Fu);
+    const Q ta = lq(ls, DEC_TAB + 16 * (a2 & 15)), tb = lq(ls, DEC_TAB + 16 * (b2 & 15));
+    *na = spu_shufb(spu_selb(h, ta, msk_sign), m, spu_selb(base, ta, msk_sel));
+    *nb = spu_shufb(spu_selb(h, tb, msk_sign), m, spu_a(spu_selb(base, tb, msk_sel), V4(0x08080808u, 0x08080808u, 0x08080808u, 0)));
+}
+typedef struct {
+    uint32_t S, P, P2, U1, U2, U3, n2, tan;
+    uint32_t slot[3];
+    Q X, shr, shl;
+} Dec;
+
+/* the first free slot byte of q (0 = free), or -1 */
+static inline int dec_free_slot(Q q)
+{
+    for (int i = 0; i < 16; i++) if (!((q._u32[i >> 2] >> (24 - 8 * (i & 3))) & 0xFF)) return i;
+    return -1;
+}
+static inline void dec_set_slot(Q* q, int i, uint32_t v)
+{
+    const int sh = 24 - 8 * (i & 3);
+    q->_u32[i >> 2] = (q->_u32[i >> 2] & ~(0xFFu << sh)) | v << sh;
+}
+static NOINL void dec_exact_pos(uint8_t* ls, const Dec* k)
+{
+    for (uint32_t i = 0; i < k->n2; i++) sq(ls, k->U1 + 16 * i, dec_pos_q(ls, k->P + 9 * i, k->X, k->shr, k->shl));
+}
+static NOINL void dec_exact_uv(uint8_t* ls, uint32_t rec, uint32_t stride, uint32_t dst, uint32_t n2)
+{
+    for (uint32_t i = 0; i < n2; i += 2) {
+        Q a, b;
+        dec_uv_pair_q(ls, rec + stride * i, rec + stride * (i + 1), &a, &b);
+        sq(ls, dst + 16 * i, a); sq(ls, dst + 16 * i + 16, b);
+    }
+}
+
+/* The fast path, four vertices per register (one quad each, the output's
+ * layout). The positions need no check: integers in, csflt + cuflt * 2^-32
+ * out, so every operand and result is a normal single or +0 and x86 under
+ * CSR_FAST rounds them like the helpers. The unit vectors depend on 20 input
+ * bits only, and the harness checks the fast decode against the exact one on
+ * all of them (work/runs/edge, t_uv): m stays within +-0.7072 and s = 1 - t in
+ * (0, 1], so every value is a normal single and h is positive. s = +0 would
+ * make frsqest's estimate an exponent-255 value, whose product with +0 is +0
+ * on the SPU and a NaN on x86; it never occurs on this grid, but h is forced
+ * to +0 there all the same. Selector nibbles 12-15 index past the shuffle
+ * table into the job's error strings (meshes use 0-11: three axes, two signs,
+ * two handednesses); a group that meets one runs its pairs the exact way. */
+static const uint32_t k_dec_tab[64] = {
+    0x80010203, 0x10111213, 0x94151617, 0xBF800000, 0x00010203, 0x10111213, 0x14151617, 0xBF800000,
+    0x80010203, 0x10111213, 0x94151617, 0x3F800000, 0x00010203, 0x10111213, 0x14151617, 0x3F800000,
+    0x90111213, 0x00010203, 0x94151617, 0xBF800000, 0x10111213, 0x00010203, 0x14151617, 0xBF800000,
+    0x90111213, 0x00010203, 0x94151617, 0x3F800000, 0x10111213, 0x00010203, 0x14151617, 0x3F800000,
+    0x90111213, 0x14151617, 0x80010203, 0xBF800000, 0x10111213, 0x14151617, 0x00010203, 0xBF800000,
+    0x90111213, 0x14151617, 0x80010203, 0x3F800000, 0x10111213, 0x14151617, 0x00010203, 0x3F800000,
+    0x4552524F, 0x523A2061, 0x7474656D, 0x70742074, 0x6F207573, 0x6520736B, 0x696E6E69, 0x6E672077,
+    0x6974686F, 0x75742061, 0x6C6C6F63, 0x6174696E, 0x6720616E, 0x20657874, 0x72612075, 0x6E69666F
+};
+/* per selector and lane: where the lane comes from in (h, ma, mb, w) -- 0..3 --
+ * and the sign the rebuilt component takes; built from k_dec_tab */
+static uint32_t k_dec_src[64], k_dec_sgn[16];
+static uint8_t k_dec_tab_be[256];          /* k_dec_tab as the LS holds it */
+static int g_dec_ok;
+static void dec_tables_init(void)
+{
+    int ok = 1;
+    for (int s = 0; s < 12; s++) {
+        const uint32_t* t = k_dec_tab + 4 * s;
+        for (int c = 0; c < 3; c++) {
+            const uint32_t w = t[c] & 0x7FFFFFFFu;
+            k_dec_src[4 * s + c] = w == 0x00010203u ? 0 : w == 0x10111213u ? 1 : w == 0x14151617u ? 2 : (ok = 0, 0);
+        }
+        k_dec_src[4 * s + 3] = 3;
+        k_dec_sgn[s] = t[0] & 0x80000000u;
+        if ((t[0] ^ t[2]) & 0x80000000u) ok = 0;          /* A's sign is word 0's, B's word 2's */
+    }
+    for (int i = 0; i < 64; i++) { const uint32_t w = __builtin_bswap32(k_dec_tab[i]); memcpy(k_dec_tab_be + 4 * i, &w, 4); }
+    g_dec_ok = ok;
+}
+static inline Z bcast4(Q q) { return _mm512_broadcast_i32x4(_mm_setr_epi32((int)q._u32[0], (int)q._u32[1], (int)q._u32[2], (int)q._u32[3])); }
+/* sixteen bytes at each of four records (LS byte order; the caller keeps them inside the LS) */
+static inline Z ld4rec(const uint8_t* ls, uint32_t a, uint32_t stride)
+{
+    Z v = _mm512_castsi128_si512(_mm_loadu_si128((const __m128i*)(ls + a)));
+    v = _mm512_inserti32x4(v, _mm_loadu_si128((const __m128i*)(ls + a + stride)), 1);
+    v = _mm512_inserti32x4(v, _mm_loadu_si128((const __m128i*)(ls + a + 2 * stride)), 2);
+    return _mm512_inserti32x4(v, _mm_loadu_si128((const __m128i*)(ls + a + 3 * stride)), 3);
+}
+/* host-order words from record bytes: (b0 << 8 | b1), (b2 << 8 | b3), (b4 << 8 | b5) */
+#define DEC_PSHUF(o) _mm512_broadcast_i32x4(_mm_setr_epi8((o) + 1, (o), -1, -1, (o) + 3, (o) + 2, -1, -1, (o) + 5, (o) + 4, -1, -1, -1, -1, -1, -1))
+/* a unit vector at byte o: (b0 << 8 | b1, b1 << 8 | b2, b2, 0) */
+#define DEC_USHUF(o) _mm512_broadcast_i32x4(_mm_setr_epi8((o) + 1, (o), -1, -1, (o) + 2, (o) + 1, -1, -1, (o) + 2, -1, -1, -1, -1, -1, -1, -1))
+static inline Z dec_pos4(Z raw, Z X, Z shr, Z shl)
+{
+    const Z v = _mm512_add_epi32(raw, X);
+    const __m512 hi = _mm512_cvtepi32_ps(_mm512_srav_epi32(v, shr));
+    const __m512 lo = _mm512_mul_ps(_mm512_cvtepu32_ps(_mm512_sllv_epi32(v, shl)), _mm512_set1_ps(0x1p-32f));
+    return _mm512_mask_mov_epi32(zi(_mm512_add_ps(hi, lo)), 0x8888, _mm512_set1_epi32(F1));
+}
+/* four unit vectors from u = DEC_USHUF words; returns the vertices whose
+ * selector is past the table (their lanes are not the job's) */
+static inline __mmask16 dec_uv4(Z u, Z* out)
+{
+    const Z sel = _mm512_and_si512(_mm512_shuffle_epi32(u, (_MM_PERM_ENUM)0xAA), _mm512_set1_epi32(15));
+    const __mmask16 bad = _mm512_cmpge_epu32_mask(sel, _mm512_set1_epi32(12));
+    const Z seli = _mm512_maskz_mov_epi32((__mmask16)~bad, sel);
+    const Z q = _mm512_or_si512(_mm512_set1_epi32(F1),
+                                _mm512_and_si512(_mm512_srlv_epi32(u, _mm512_broadcast_i32x4(_mm_setr_epi32(6, 4, 0, 0))), _mm512_set1_epi32(0x3FF)));
+    const Z m = FMA(_mm512_set1_epi32(DEC_K1), q, _mm512_set1_epi32(DEC_K2));
+    const Z sq = FM(m, m);
+    const Z s = zi(_mm512_sub_ps(_mm512_set1_ps(1.0f), _mm512_add_ps(zf(sq), zf(_mm512_shuffle_epi32(sq, (_MM_PERM_ENUM)0xF9)))));
+    const Z h = zi(_mm512_maskz_mul_ps(_mm512_test_epi32_mask(s, _mm512_set1_epi32(0x7F800000)), zf(s), zf(rsq16(s))));
+    const Z hs = _mm512_or_si512(_mm512_and_si512(h, _mm512_set1_epi32(0x7FFFFFFF)), _mm512_permutexvar_epi32(seli, _mm512_loadu_si512(k_dec_sgn)));
+    const Z lane = _mm512_broadcast_i32x4(_mm_setr_epi32(0, 1, 2, 3));
+    const Z ti = _mm512_add_epi32(_mm512_slli_epi32(seli, 2), lane);
+    const __mmask16 thi = _mm512_test_epi32_mask(ti, _mm512_set1_epi32(32));
+    /* V = (h with the table's sign, ma, mb, the table's lane 3) per vertex */
+    Z V = _mm512_mask_mov_epi32(_mm512_shuffle_epi32(m, (_MM_PERM_ENUM)0x90), 0x1111, hs);
+    V = _mm512_mask_mov_epi32(V, 0x8888, lut64(k_dec_tab, ti, thi));
+    const Z src = lut64(k_dec_src, ti, thi);
+    *out = _mm512_permutexvar_epi32(_mm512_add_epi32(_mm512_setr_epi32(0, 0, 0, 0, 4, 4, 4, 4, 8, 8, 8, 8, 12, 12, 12, 12), src), V);
+    return bad;
+}
+static inline void st16n(uint8_t* ls, uint32_t a, Z v, uint32_t nq)
+{
+    if (likely(nq >= 4)) st16(ls, a, v);
+    else _mm512_mask_storeu_epi32(ls + (a & LSQ), (__mmask16)((1u << (4 * nq)) - 1), bswap16(v));
+}
+/* positions of all n2 vertices; b <= 16 */
+static NOINL void dec_fast_pos(uint8_t* ls, const Dec* k, uint32_t b)
+{
+    const Z X = bcast4(k->X), shr = _mm512_set1_epi32((int)(16 - b)), shl = _mm512_set1_epi32((int)(16 + b));
+    const Z ctl = DEC_PSHUF(0);
+    for (uint32_t i = 0; i < k->n2; i += 4)
+        st16n(ls, (k->U1 & LSQ) + 16 * i, dec_pos4(_mm512_shuffle_epi8(ld4rec(ls, k->P + 9 * i, 9), ctl), X, shr, shl), k->n2 - i);
+}
+/* the unit vectors of n2 vertices from records at rec (stride bytes apart),
+ * the vector at byte o of each: the fast pass over all of them, then the
+ * pairs it could not do, exactly. bad[g] collects group g's vertices that
+ * need the exact path. */
+static NOINL uint32_t dec_fast_uv_pass(uint8_t* ls, uint32_t rec, uint32_t stride, Z ctl, uint32_t dst, uint32_t n2, uint16_t* bad)
+{
+    uint32_t any = 0;
+    for (uint32_t i = 0; i < n2; i += 4) {
+        Z o;
+        const uint32_t nq = n2 - i;
+        __mmask16 m = dec_uv4(_mm512_shuffle_epi8(ld4rec(ls, rec + stride * i, stride), ctl), &o);
+        st16n(ls, dst + 16 * i, o, nq);
+        if (nq < 4) m &= 0x00FF;
+        bad[i / 4] = m; any |= m;
+    }
+    return any;
+}
+static NOINL void dec_exact_uv_pair(uint8_t* ls, uint32_t ra, uint32_t rb, uint32_t dst)
+{
+    Q a, b;
+    dec_uv_pair_q(ls, ra, rb, &a, &b);
+    sq(ls, dst, a); sq(ls, dst + 16, b);
+}
+/* MXCSR is CSR_FAST here; csr is the caller's */
+static void dec_fast_uv(uint8_t* ls, uint32_t rec, uint32_t stride, uint32_t o, uint32_t dst, uint32_t n2, uint32_t csr)
+{
+    static _Thread_local uint16_t bad[SPU_LS_SIZE / 64];
+    dst &= LSQ;
+    if (likely(!dec_fast_uv_pass(ls, rec, stride, o ? DEC_USHUF(6) : DEC_USHUF(0), dst, n2, bad))) return;
+    _mm_setcsr(csr);
+    for (uint32_t i = 0; i < n2; i += 4) {
+        if (bad[i / 4]) EDGE_EXACT(g_dec_exact);
+        for (uint32_t p = 0; p < 4; p += 2)
+            if (bad[i / 4] & (0xFFu << (4 * p)))
+                dec_exact_uv_pair(ls, rec + stride * (i + p) + o, rec + stride * (i + p + 1) + o, dst + 16 * (i + p));
+    }
+    _mm_setcsr(CSR_FAST);
+}
+#ifdef EDGE_HARNESS
+static NOINL void dec_selftest_fast(uint8_t* ls, uint32_t rec, uint32_t n, uint8_t* out, uint16_t* bad)
+{
+    const Z ctl = DEC_USHUF(0);
+    for (uint32_t i = 0; i < n; i += 4) {
+        Z o;
+        bad[i / 4] = dec_uv4(_mm512_shuffle_epi8(ld4rec(ls, rec + 3 * i, 3), ctl), &o);
+        _mm512_storeu_si512(out + 16 * i, bswap16(o));
+    }
+}
+/* Every 24-bit unit vector through the fast decode and the exact one, as
+ * vertex A of a pair and (with a scrambled partner) as vertex B. ls holds the
+ * module image; 0x20000.. is scratch. Returns the number of differences. */
+long edge_dec_uv_selftest(uint8_t* ls)
+{
+    rsq_init(); dec_tables_init();
+    enum { N = 4096 };
+    static uint8_t out[16 * N]; static uint16_t bad[N / 4];
+    const uint32_t rec = 0x20000, csr = _mm_getcsr();
+    long diff = 0, nbad = 0;
+    for (uint32_t v0 = 0; v0 < (1u << 24); v0 += N / 2) {
+        for (uint32_t j = 0; j < N; j++) {
+            const uint32_t v = v0 + j / 2, x = (j & 1) ? ((v * 0x9E3779B1u) >> 8) & 0xFFFFFF : v;
+            ls[rec + 3 * j] = x >> 16; ls[rec + 3 * j + 1] = x >> 8; ls[rec + 3 * j + 2] = x;
+        }
+        memset(ls + rec + 3 * N, 0, 64);
+        _mm_setcsr(CSR_FAST);
+        dec_selftest_fast(ls, rec, N, out, bad);
+        _mm_setcsr(csr);
+        for (uint32_t j = 0; j < N; j += 2) {
+            Q a, b;
+            dec_uv_pair_q(ls, rec + 3 * j, rec + 3 * j + 3, &a, &b);
+            const uint16_t bm = bad[j / 4] >> (4 * (j & 3));
+            Q fa = lq(out, 16 * j), fb = lq(out, 16 * j + 16);
+            if (!(bm & 0x0F) && memcmp(&a, &fa, 16)) { if (diff++ < 8) fprintf(stderr, "uv A %06X: %08X %08X %08X %08X vs %08X %08X %08X %08X\n", (ls[rec + 3 * j] << 16) | (ls[rec + 3 * j + 1] << 8) | ls[rec + 3 * j + 2], a._u32[0], a._u32[1], a._u32[2], a._u32[3], fa._u32[0], fa._u32[1], fa._u32[2], fa._u32[3]); }
+            if (!(bm & 0xF0) && memcmp(&b, &fb, 16)) { if (diff++ < 8) fprintf(stderr, "uv B\n"); }
+            nbad += ((bm & 0x0F) != 0) + ((bm & 0xF0) != 0);
+            const uint32_t sa = ls[rec + 3 * j + 2] & 15, sb = ls[rec + 3 * j + 5] & 15;
+            if (((bm & 0x0F) != 0) != (sa >= 12) || ((bm & 0xF0) != 0) != (sb >= 12)) diff++;
+        }
+    }
+    fprintf(stderr, "uv selftest: %ld differences, %ld vertices past the table\n", diff, nbad);
+    return diff;
+}
+#endif
+static int edge_dec_core(u128* gpr, uint8_t* ls)
+{
+    const uint32_t S = gpr[3]._u32[0], T = gpr[4]._u32[0], D = gpr[5]._u32[0], sp = gpr[1]._u32[0];
+    if ((sp & 15) || sp < 0x400 || sp + 0x20 > SPU_LS_SIZE || (S & 15) || S + 0x180 > SPU_LS_SIZE) return 0;
+    /* the special format pair, tested on the aligned quads as the job does */
+    const uint32_t F = word_at(ls, D + 44), F2 = word_at(ls, D + 0x30);
+    const Q f0 = lq(ls, F), f1 = lq(ls, F + 16);
+    if ((f0._u32[0] >> 24) != 2 || (f0._u32[2] & 0xFF) != 1 || (f1._u32[0] & 0xFF) != 2) return 0;
+    if (F2) {
+        const Q g = lq(ls, F2);
+        if ((g._u32[0] >> 24) != 1 || (g._u32[2] & 0xFF) != 3) return 0;
+    }
+    Dec k; memset(&k, 0, sizeof k);
+    k.S = S; k.tan = F2 != 0;
+    k.P = word_at(ls, D + 20); k.P2 = word_at(ls, D + 24);
+    const uint32_t numv = lq(ls, S)._u32[2] >> 16;
+    if (!numv) return 0;                                  /* the job's loop would run 2^27 times */
+    k.n2 = (numv + 1) & ~1u;
+    Q slots = lq(ls, S + 0x170);
+    for (uint32_t j = 0; j < 2 + k.tan; j++) {
+        const int i = dec_free_slot(slots);
+        if (i < 0) return 0;
+        dec_set_slot(&slots, i, j + 1);
+        k.slot[j] = i;
+    }
+    k.U1 = word_at(ls, S + 16 + 4 * k.slot[0]); k.U2 = word_at(ls, S + 16 + 4 * k.slot[1]);
+    k.U3 = k.tan ? word_at(ls, S + 16 + 4 * k.slot[2]) : 0;
+    const uint32_t X = word_at(ls, D + 40);
+    k.X = V4(word_at(ls, X), word_at(ls, X + 4), word_at(ls, X + 8), word_at(ls, X + 12));
+    const uint32_t b = lq(ls, T + 0x10)._u32[2] & 0xFF;
+    k.shr = V4(b - 16, b - 16, b - 16, 0); k.shl = V4(16 + b, 16 + b, 16 + b, 32);
+    /* the overlap guard: outputs against each other and against everything read */
+    Span s[12]; int ns = 0;
+    s[ns++] = (Span){ sp - 0x50, sp + 0x20, 1 };
+    s[ns++] = (Span){ S + 0x50, S + 0x70, 1 };
+    s[ns++] = (Span){ S + 0x170, S + 0x180, 1 };
+    s[ns++] = (Span){ S, S + 0x50, 0 };
+    s[ns++] = (Span){ k.U1 & LSQ, (k.U1 & LSQ) + 16 * k.n2, 1 };
+    s[ns++] = (Span){ k.U2 & LSQ, (k.U2 & LSQ) + 16 * (k.n2 + 2), 1 };
+    if (k.tan) s[ns++] = (Span){ k.U3 & LSQ, (k.U3 & LSQ) + 16 * (k.n2 + 2), 1 };
+    s[ns++] = (Span){ k.P, k.P + 9 * k.n2, 0 };
+    if (k.tan) s[ns++] = (Span){ k.P2, k.P2 + 3 * k.n2, 0 };
+    s[ns++] = (Span){ X & LSQ, (X & LSQ) + 32, 0 };
+    s[ns++] = (Span){ 0x4000, 0xF6B0, 0 };              /* the module: tables, constants, code */
+    s[ns++] = (Span){ D & LSQ, (D & LSQ) + 64, 0 };
+    if (!spans_ok(s, ns)) return 0;
+    if (((T + 0x10) & LSQ) + 16 > SPU_LS_SIZE || (F & LSQ) + 32 > SPU_LS_SIZE) return 0;
+    /* the outputs must not reach what the job reads after writing them: T, F, F2 */
+    {
+        const uint32_t rd[3] = { (T + 0x10) & LSQ, F & LSQ, F2 & LSQ };
+        for (int r = 0; r < 3; r++)
+            for (int i = 0; i < ns; i++)
+                if (s[i].w && rd[r] < s[i].hi && s[i].lo < rd[r] + 32) return 0;
+    }
+
+    /* prologue */
+    sq(ls, sp - 0x10, gpr[80]); sq(ls, sp - 0x20, gpr[81]); sq(ls, sp - 0x30, gpr[82]);
+    sq(ls, sp + 0x10, gpr[0]); sq(ls, sp - 0x50, gpr[1]);
+    {
+        Q q = lq(ls, S + 0x50); q._u32[1] = k.P; q._u32[2] = k.P; q._u32[3] = k.U1; sq(ls, S + 0x50, q);
+        q = lq(ls, S + 0x60); q._u32[0] = k.U2; if (k.tan) q._u32[1] = k.U3; sq(ls, S + 0x60, q);
+        sq(ls, S + 0x170, slots);
+    }
+    const int fast = g_dec_ok && k.P + 9 * (k.n2 + 2) + 16 <= SPU_LS_SIZE && (!k.tan || k.P2 + 3 * (k.n2 + 2) + 16 <= SPU_LS_SIZE) &&
+                     !memcmp(ls + DEC_TAB, k_dec_tab_be, sizeof k_dec_tab_be);
+    if (!fast || b > 16) dec_exact_pos(ls, &k);
+    if (!fast) {
+        dec_exact_uv(ls, k.P + 6, 9, k.U2, k.n2);
+        if (k.tan) dec_exact_uv(ls, k.P2, 3, k.U3, k.n2);
+    } else {
+        const uint32_t csr = _mm_getcsr();
+        _mm_setcsr(CSR_FAST);
+        if (b <= 16) dec_fast_pos(ls, &k, b);
+        dec_fast_uv(ls, k.P, 9, 6, k.U2, k.n2, csr);
+        if (k.tan) dec_fast_uv(ls, k.P2, 3, 0, k.U3, k.n2, csr);
+        _mm_setcsr(csr);
+    }
+    sq(ls, k.U2 + 16 * k.n2, splat4(0)); sq(ls, k.U2 + 16 * k.n2 + 16, splat4(0));
+    if (k.tan) { sq(ls, k.U3 + 16 * k.n2, splat4(0)); sq(ls, k.U3 + 16 * k.n2 + 16, splat4(0)); }
+    gpr[80] = lq(ls, sp - 0x10); gpr[81] = lq(ls, sp - 0x20); gpr[82] = lq(ls, sp - 0x30);
+    gpr[0] = lq(ls, sp + 0x10);
+    return 1;
+}
+
+/* ================================================================== 0x99E8: vertex compression, output format 1
+ *
+ * 0x9780 compresses the segment's vertices for the RSX through a jump table on
+ * the output format (S+4); 0x99E8 is the case for format 1, 20 bytes per
+ * vertex: the position's three floats as they are, then the two unit-vector
+ * streams packed as X11Y11Z10. The three streams are the uniform tables whose
+ * slot bytes at S+0x170 hold 1 (positions), 2 and 3; per component
+ * i = cflts(fma(scale, v, bias), 142) (scale and bias from the job's constants
+ * at 0xE920/0xE930, about 0.9995 and -2^-11), and the word is
+ * (z & 0xFFC00000) | (y >> 21) << 11 | x >> 21.
+ *
+ * The case is a chunk of 0x9780, entered from its jump table with the
+ * registers 0x9780 set up (S in r81, the output pointer in r82, the count
+ * rounded up to two in r33, masks and constants in r26..r44), and it goes on
+ * at 0x98B0, which updates the output pointer and returns. So the hook
+ * transfers there (tools/lift_spu.py, an entry with a continuation), and
+ * these registers are its inputs: the kernel checks they hold what 0x9780
+ * puts in them and falls back otherwise. Nothing the chunk writes to a
+ * register is read at 0x98B0 or later: r80 is overwritten there before any
+ * read, and r2..r79 are dead.
+ *
+ * The output loop writes two vertices (40 bytes) per step at any alignment:
+ * four quads, the first merged with the bytes already in the LS before the
+ * output pointer; past its last vertex, the last step leaves the pattern
+ * (n, t, 0, 0) of the last vertex's packed words, repeated from 32 bytes
+ * after the last step's start, up to the end of its fourth quad. */
+#define ENC_OUT_QUADS(o, n2) ((((o) + 20 * (n2) + 8) & ~15u) + 16)   /* end of the last step's fourth quad */
+static const uint32_t k_enc_scale[4] = { 0x3F7FE000, 0x3F7FE000, 0x3F7FC000, 0 };
+static const uint32_t k_enc_bias[4] = { 0xBA000000, 0xBA000000, 0xBA800000, 0 };
+static inline int q_eq(Q a, uint32_t w0, uint32_t w1, uint32_t w2, uint32_t w3)
+{
+    return a._u32[0] == w0 && a._u32[1] == w1 && a._u32[2] == w2 && a._u32[3] == w3;
+}
+static inline int q_same(Q a, Q b) { return !memcmp(&a, &b, sizeof a); }
+static inline uint32_t enc_pack_q(Q v, Q scale, Q bias)
+{
+    const Q c = spu_cflts(spu_fma(scale, v, bias), 142);
+    return (c._u32[2] & 0xFFC00000u) | (c._u32[1] >> 21) << 11 | c._u32[0] >> 21;
+}
+static inline void ls_w32(uint8_t* ls, uint32_t a, uint32_t v)
+{
+    ls[a & LSM] = v >> 24; ls[(a + 1) & LSM] = v >> 16; ls[(a + 2) & LSM] = v >> 8; ls[(a + 3) & LSM] = v;
+}
+typedef struct { uint32_t O, n2, U1, U2, U3; Q scale, bias; } Enc;
+/* the trailing pattern of the last step (the LS bytes past the last vertex),
+ * at the caller's MXCSR */
+static NOINL void enc_tail(uint8_t* ls, const Enc* k)
+{
+    const uint32_t last = k->n2 - 1;
+    const uint32_t n = enc_pack_q(lq(ls, k->U2 + 16 * last), k->scale, k->bias), t = enc_pack_q(lq(ls, k->U3 + 16 * last), k->scale, k->bias);
+    const uint32_t g = k->O + 20 * k->n2 - 8, end = ENC_OUT_QUADS(k->O, k->n2);
+    const uint8_t pat[16] = { n >> 24, n >> 16, n >> 8, n, t >> 24, t >> 16, t >> 8, t };
+    for (uint32_t a = k->O + 20 * k->n2; a < end; a++) ls[a & LSM] = pat[(a - g) & 15];
+}
+static NOINL void enc_exact(uint8_t* ls, const Enc* k, uint32_t from, uint32_t to)
+{
+    for (uint32_t v = from; v < to; v++) {
+        const Q p = lq(ls, k->U1 + 16 * v);
+        const uint32_t n = enc_pack_q(lq(ls, k->U2 + 16 * v), k->scale, k->bias), t = enc_pack_q(lq(ls, k->U3 + 16 * v), k->scale, k->bias);
+        const uint32_t o = k->O + 20 * v;
+        ls_w32(ls, o, p._u32[0]); ls_w32(ls, o + 4, p._u32[1]); ls_w32(ls, o + 8, p._u32[2]);
+        ls_w32(ls, o + 12, n); ls_w32(ls, o + 16, t);
+    }
+}
+/* The fast path, four vertices per register. With the job's scale and bias
+ * (|scale| < 1, |bias| tiny) a component without exponent 255 gives an fma
+ * that cannot overflow, and x86 under CSR_FAST rounds it like the helpers; a
+ * denormal or tiny result converts to 0 on both sides. cflts saturates where
+ * cvtt gives 0x80000000: only values >= 1.0 need fixing. A group with an
+ * exponent-255 component is left to the exact path (returns 0, writes nothing). */
+static inline Z enc_pack4(Z v, Z scale, Z bias)
+{
+    const __m512 f = _mm512_fmadd_ps(zf(scale), zf(v), zf(bias));
+    Z c = _mm512_cvttps_epi32(_mm512_mul_ps(f, _mm512_set1_ps(0x1p31f)));
+    c = _mm512_mask_mov_epi32(c, _mm512_cmp_ps_mask(f, _mm512_set1_ps(1.0f), _CMP_GE_OQ), _mm512_set1_epi32(0x7FFFFFFF));
+    const Z y = _mm512_shuffle_epi32(c, (_MM_PERM_ENUM)0x55), z = _mm512_shuffle_epi32(c, (_MM_PERM_ENUM)0xAA);
+    return _mm512_ternarylogic_epi32(_mm512_and_si512(z, _mm512_set1_epi32((int)0xFFC00000u)), _mm512_slli_epi32(_mm512_srli_epi32(y, 21), 11),
+                                     _mm512_srli_epi32(c, 21), 0xFE);   /* lane 0 of each quad */
+}
+static NOINL int enc_fast4(uint8_t* ls, const Enc* k, uint32_t v, uint32_t nv)
+{
+    const Z N = ld16(ls, k->U2 + 16 * v), T = ld16(ls, k->U3 + 16 * v);
+    const Z e = _mm512_set1_epi32(0x7F800000);
+    if (unlikely((_mm512_cmpeq_epi32_mask(_mm512_and_si512(N, e), e) | _mm512_cmpeq_epi32_mask(_mm512_and_si512(T, e), e)) & 0x7777)) return 0;
+    const Z scale = bcast4(k->scale), bias = bcast4(k->bias);
+    const Z n = bswap16(enc_pack4(N, scale, bias)), t = bswap16(enc_pack4(T, scale, bias));
+    /* (x, y, z, n) per vertex in LS byte order, the position's bytes as they are */
+    const Z r = _mm512_mask_mov_epi32(_mm512_loadu_si512(ls + k->U1 + 16 * v), 0x8888, _mm512_shuffle_epi32(n, (_MM_PERM_ENUM)0x00));
+    uint8_t* o = ls + k->O + 20 * v;
+    _mm_storeu_si128((__m128i*)o, _mm512_castsi512_si128(r));
+    _mm_storeu_si32(o + 16, _mm512_castsi512_si128(t));
+    _mm_storeu_si128((__m128i*)(o + 20), _mm512_extracti32x4_epi32(r, 1));
+    _mm_storeu_si32(o + 36, _mm512_extracti32x4_epi32(t, 1));
+    if (nv > 2) {
+        _mm_storeu_si128((__m128i*)(o + 40), _mm512_extracti32x4_epi32(r, 2));
+        _mm_storeu_si32(o + 56, _mm512_extracti32x4_epi32(t, 2));
+        _mm_storeu_si128((__m128i*)(o + 60), _mm512_extracti32x4_epi32(r, 3));
+        _mm_storeu_si32(o + 76, _mm512_extracti32x4_epi32(t, 3));
+    }
+    return 1;
+}
+/* the slot byte holding id, or -1 */
+static inline int enc_slot(Q q, uint32_t id)
+{
+    for (int i = 0; i < 16; i++) if (((q._u32[i >> 2] >> (24 - 8 * (i & 3))) & 0xFF) == id) return i;
+    return -1;
+}
+static int edge_enc_core(u128* gpr, uint8_t* ls)
+{
+    const uint32_t S = gpr[81]._u32[0], O = gpr[82]._u32[0], n2 = gpr[33]._u32[0];
+    /* what 0x9780 leaves in the chunk's input registers */
+    if (gpr[27]._u32[0] != S + 16 || !q_eq(gpr[37], 0x003FF800u, 0x003FF800u, 0x003FF800u, 0x003FF800u) ||
+        !q_eq(gpr[44], 0x03030303u, 0x03030303u, 0x03030303u, 0x03030303u) ||
+        !q_eq(gpr[26], 0x20212223u, 0x24252627u, 0x28292A2Bu, 0x2C2D2E2Fu) ||
+        !q_eq(gpr[30], 0x10111213u, 0x14151617u, 0x18191A1Bu, 0x1C1D1E1Fu) ||
+        !q_eq(gpr[41], 0x08090001u, 0x18191011u, 0x08090001u, 0x18191011u) ||
+        !q_eq(gpr[31], 0x0D04051Cu, 0x1D14150Cu, 0x0D04051Cu, 0x1D14150Cu) ||
+        !q_eq(lq(ls, 0xE910), 0xFFFFFFFBu, 0xFFFFFFFEu, 0, 0) ||
+        !q_same(gpr[29], lq(ls, 0xE920)) || !q_same(gpr[28], lq(ls, 0xE930)))
+        return 0;
+    if (!n2 || (n2 & 1) || n2 > 0x2000 || (S & 15) || S + 0x180 > SPU_LS_SIZE) return 0;
+    const Q slots = lq(ls, S + 0x170);
+    const int i1 = enc_slot(slots, 1), i2 = enc_slot(slots, 2), i3 = enc_slot(slots, 3);
+    if (i1 < 0 || i2 < 0 || i3 < 0) return 0;
+    Enc k;
+    k.O = O; k.n2 = n2; k.scale = gpr[29]; k.bias = gpr[28];
+    k.U1 = word_at(ls, S + 16 + 4 * i1) & LSQ; k.U2 = word_at(ls, S + 16 + 4 * i2) & LSQ; k.U3 = word_at(ls, S + 16 + 4 * i3) & LSQ;
+    /* the overlap guard: the output against everything read (the streams with the job's read-ahead) */
+    Span s[6]; int ns = 0;
+    s[ns++] = (Span){ O & LSQ, ENC_OUT_QUADS(O, n2), 1 };
+    s[ns++] = (Span){ S + 0x10, S + 0x50, 0 };
+    s[ns++] = (Span){ S + 0x170, S + 0x180, 0 };
+    s[ns++] = (Span){ k.U1, k.U1 + 16 * (n2 + 4), 0 };
+    s[ns++] = (Span){ k.U2, k.U2 + 16 * (n2 + 4), 0 };
+    s[ns++] = (Span){ k.U3, k.U3 + 16 * (n2 + 4), 0 };
+    if (!spans_ok(s, ns)) return 0;
+    {
+        const Span m[2] = { s[0], { 0x4000, 0xF6B0, 0 } };   /* the module: its constants and code */
+        if (!spans_ok(m, 2)) return 0;
+    }
+    if (q_eq(k.scale, k_enc_scale[0], k_enc_scale[1], k_enc_scale[2], k_enc_scale[3]) &&
+        q_eq(k.bias, k_enc_bias[0], k_enc_bias[1], k_enc_bias[2], k_enc_bias[3])) {
+        const uint32_t csr = _mm_getcsr();
+        _mm_setcsr(CSR_FAST);
+        for (uint32_t v = 0; v < n2; v += 4)
+            if (unlikely(!enc_fast4(ls, &k, v, n2 - v))) {
+                EDGE_EXACT(g_enc_exact);
+                _mm_setcsr(csr);
+                enc_exact(ls, &k, v, v + 4 < n2 ? v + 4 : n2);
+                _mm_setcsr(CSR_FAST);
+            }
+        _mm_setcsr(csr);
+    } else
+        enc_exact(ls, &k, 0, n2);
+    enc_tail(ls, &k);
+    return 1;
+}
+
 /* ================================================================== the hooks
  *
  * A kernel is int core(u128* gpr, uint8_t* ls): it reads and writes only the
@@ -1077,12 +1600,22 @@ static int edge_cull_core(u128* gpr, uint8_t* ls)
 typedef int (*EdgeCore)(u128* gpr, uint8_t* ls);
 typedef struct {
     uint32_t addr; const char* name; EdgeCore core;
+    /* a chunk inside a guest function goes on at cont when done (0: a
+     * function, which returns through r0); r80 is then dead, not compared */
+    uint32_t cont;
+    /* its own switch (0: PS3RECOMP_NATIVE_EDGE alone); kernels with one are
+     * off unless it is set, and PS3RECOMP_NATIVE_EDGE=0 turns everything off */
+    const char* env;
+    const unsigned long long* exact;   /* groups the kernel's exact path redid, or 0 */
+    int mode;
     unsigned long long calls, native, fallback, cmp, bad, ns_nat, ns_spu, captured;
 } EdgeKernel;
 static EdgeKernel g_kern[] = {
-    { 0xD0A8, "skin", edge_skin_core, 0, 0, 0, 0, 0, 0, 0, 0 },
-    { 0xA3C8, "cull transform", edge_xf_core, 0, 0, 0, 0, 0, 0, 0, 0 },
-    { 0xA798, "cull", edge_cull_core, 0, 0, 0, 0, 0, 0, 0, 0 },
+    { .addr = 0xD0A8, .name = "skin", .core = edge_skin_core },
+    { .addr = 0xA3C8, .name = "cull transform", .core = edge_xf_core },
+    { .addr = 0xA798, .name = "cull", .core = edge_cull_core },
+    { .addr = 0x4448, .name = "vertex decompression", .core = edge_dec_core, .env = "PS3RECOMP_NATIVE_EDGE_DEC", .exact = &g_dec_exact },
+    { .addr = 0x99E8, .name = "vertex compression", .core = edge_enc_core, .cont = 0x98B0, .env = "PS3RECOMP_NATIVE_EDGE_ENC", .exact = &g_enc_exact },
 };
 #define NKERN ((int)(sizeof g_kern / sizeof g_kern[0]))
 
@@ -1090,7 +1623,7 @@ static EdgeKernel g_kern[] = {
 int edge_skin_native(spu_context* c) { return edge_skin_core(c->gpr, c->ls); }
 EdgeCore edge_core_for(uint32_t addr)
 {
-    if (!g_wtab[255]) { rsq_init(); wtab_init(); fnms_init(); }
+    if (!g_wtab[255]) { rsq_init(); wtab_init(); fnms_init(); dec_tables_init(); }
     for (int i = 0; i < NKERN; i++) if (g_kern[i].addr == addr) return g_kern[i].core;
     return 0;
 }
@@ -1098,7 +1631,7 @@ EdgeCore edge_core_for(uint32_t addr)
 
 #ifndef EDGE_HARNESS
 void (*spu_lookup(uint32_t addr, int image_id))(spu_context*);
-static int s_mode = -1;                 /* PS3RECOMP_NATIVE_EDGE */
+static int s_init = -1;
 static const char* s_cap_dir;           /* PS3RECOMP_EDGE_CAPTURE=dir[,count[,every]] */
 static unsigned s_cap_max = 32, s_cap_every = 997;
 static _Thread_local int t_bypass;
@@ -1107,8 +1640,14 @@ static inline uint64_t now_ns(void)
     struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
 }
+static const char* mode_name(int m) { return m == 2 ? "compare with the lifted code" : m ? "on" : "off"; }
 static void edge_init(void)
 {
+    static int busy;
+    if (__atomic_exchange_n(&busy, 1, __ATOMIC_ACQ_REL)) {      /* another SPU thread is initialising */
+        while (__atomic_load_n(&s_init, __ATOMIC_ACQUIRE) < 0) __builtin_ia32_pause();
+        return;
+    }
     const char* e = getenv("PS3RECOMP_NATIVE_EDGE");
     int m = e ? atoi(e) : 1;
     if (!__builtin_cpu_supports("avx512f") || !__builtin_cpu_supports("avx512bw") || !__builtin_cpu_supports("avx512vl") ||
@@ -1122,10 +1661,18 @@ static void edge_init(void)
         if (!s_cap_every) s_cap_every = 1;
         s_cap_dir = dir;
     }
-    rsq_init(); wtab_init(); fnms_init();
+    rsq_init(); wtab_init(); fnms_init(); dec_tables_init();
+    for (int i = 0; i < NKERN; i++) {
+        EdgeKernel* k = &g_kern[i];
+        const char* ke = k->env ? getenv(k->env) : 0;
+        k->mode = !m ? 0 : !k->env ? m : ke ? atoi(ke) : 0;
+        if (k->mode < 0 || k->mode > 2) k->mode = 0;
+    }
     fprintf(stderr, "[edge] native Edge Geometry kernels: %s%s%s\n",
-            m == 2 ? "compare with the lifted code" : m ? "on" : "off", s_cap_dir ? ", capturing to " : "", s_cap_dir ? s_cap_dir : "");
-    __atomic_store_n(&s_mode, m, __ATOMIC_RELEASE);
+            mode_name(m), s_cap_dir ? ", capturing to " : "", s_cap_dir ? s_cap_dir : "");
+    for (int i = 0; i < NKERN; i++)
+        if (g_kern[i].env) fprintf(stderr, "[edge]   %s (0x%X): %s (%s)\n", g_kern[i].name, g_kern[i].addr, mode_name(g_kern[i].mode), g_kern[i].env);
+    __atomic_store_n(&s_init, 1, __ATOMIC_RELEASE);
 }
 static void edge_stats(void)
 {
@@ -1138,7 +1685,8 @@ static void edge_stats(void)
         const EdgeKernel* k = &g_kern[i];
         if (!k->calls) continue;
         fprintf(stderr, "[edge] %s (0x%X): %llu calls, %llu native, %llu lifted", k->name, k->addr, k->calls, k->native, k->fallback);
-        if (s_mode == 2)
+        if (k->exact) fprintf(stderr, ", %llu exact groups", __atomic_load_n(k->exact, __ATOMIC_RELAXED));
+        if (k->mode == 2)
             fprintf(stderr, "; compared %llu, differ %llu; native %.2f us, lifted %.2f us per compared call",
                     k->cmp, k->bad, k->cmp ? k->ns_nat / 1e3 / k->cmp : 0.0, k->cmp ? k->ns_spu / 1e3 / k->cmp : 0.0);
         fprintf(stderr, "\n");
@@ -1155,27 +1703,42 @@ static void edge_dump(const char* dir, const char* tag, const EdgeKernel* k, uns
     fwrite(ls, 1, SPU_LS_SIZE, f);
     fclose(f);
 }
-/* the registers a caller can see: the link, the stack pointer, r80..r127 */
-static int edge_regs_differ(const u128* a, const u128* b)
+/* the registers a caller can see: the link, the stack pointer, r80..r127
+ * (from r81 for a chunk, whose continuation overwrites r80 first) */
+static int edge_regs_differ(const u128* a, const u128* b, int chunk)
 {
     if (memcmp(&a[0], &b[0], 32)) return 1;
-    return memcmp(&a[80], &b[80], 48 * sizeof(u128)) != 0;
+    const int lo = chunk ? 81 : 80;
+    return memcmp(&a[lo], &b[lo], (128 - lo) * sizeof(u128)) != 0;
+}
+/* Mode 2 for a chunk: run the lifted code from its entry until it transfers
+ * to the continuation, and leave that transfer to the hook. */
+static void edge_run_chunk(spu_context* ctx, void (*fn)(spu_context*), uint32_t cont)
+{
+    fn(ctx);
+    while (ctx->tramp_fn && (ctx->pc & SPU_LS_MASK) != cont) {
+        void (*f)(spu_context*) = ctx->tramp_fn;
+        ctx->tramp_fn = 0;
+        f(ctx);
+    }
+    ctx->tramp_fn = 0;
 }
 static int edge_entry(spu_context* ctx, EdgeKernel* k)
 {
     if (t_bypass) return 0;
-    if (unlikely(__atomic_load_n(&s_mode, __ATOMIC_ACQUIRE) < 0)) edge_init();
-    if (!s_mode) return 0;
+    if (unlikely(__atomic_load_n(&s_init, __ATOMIC_ACQUIRE) < 0)) edge_init();
+    const int mode = k->mode;
+    if (!mode) return 0;
     const unsigned long long id = __atomic_fetch_add(&k->calls, 1, __ATOMIC_RELAXED);
     edge_stats();
     if (s_cap_dir && id % s_cap_every == 0 && __atomic_fetch_add(&k->captured, 1, __ATOMIC_RELAXED) < s_cap_max)
         edge_dump(s_cap_dir, "in", k, id, ctx->gpr, ctx->ls);
-    if (s_mode != 2) {
+    if (mode != 2) {
         if (k->core(ctx->gpr, ctx->ls)) { __atomic_fetch_add(&k->native, 1, __ATOMIC_RELAXED); return 1; }
         __atomic_fetch_add(&k->fallback, 1, __ATOMIC_RELAXED);
         return 0;
     }
-    /* Mode 2: the kernel on a copy, then the lifted function on the real state. */
+    /* Mode 2: the kernel on a copy, then the lifted code on the real state. */
     static _Thread_local uint8_t* pre; static _Thread_local uint8_t* work;
     static _Thread_local u128 gpre[128], gwork[128];
     if (!pre) { pre = (uint8_t*)aligned_alloc(64, SPU_LS_SIZE); work = (uint8_t*)aligned_alloc(64, SPU_LS_SIZE); if (!pre || !work) return 0; }
@@ -1191,7 +1754,10 @@ static int edge_entry(spu_context* ctx, EdgeKernel* k)
     const uint32_t r0 = ctx->gpr[0]._u32[0];
     t_bypass = 1;
     const uint64_t t2 = now_ns();
-    ctx->host_depth++; fn(ctx); spu_drain_call(ctx, r0); ctx->host_depth--;
+    ctx->host_depth++;
+    if (k->cont) edge_run_chunk(ctx, fn, k->cont);
+    else { fn(ctx); spu_drain_call(ctx, r0); }
+    ctx->host_depth--;
     const uint64_t t3 = now_ns();
     spu_img_restore(ctx, si);
     t_bypass = 0;
@@ -1199,7 +1765,7 @@ static int edge_entry(spu_context* ctx, EdgeKernel* k)
     __atomic_fetch_add(&k->cmp, 1, __ATOMIC_RELAXED);
     __atomic_fetch_add(&k->ns_nat, t1 - t0, __ATOMIC_RELAXED);
     __atomic_fetch_add(&k->ns_spu, t3 - t2, __ATOMIC_RELAXED);
-    const int regs = edge_regs_differ(ctx->gpr, gwork);
+    const int regs = edge_regs_differ(ctx->gpr, gwork, k->cont != 0);
     if (regs || memcmp(ctx->ls, work, SPU_LS_SIZE)) {
         const unsigned long long nb = __atomic_add_fetch(&k->bad, 1, __ATOMIC_RELAXED);
         if (nb <= 8) {
@@ -1212,17 +1778,22 @@ static int edge_entry(spu_context* ctx, EdgeKernel* k)
             if (dir) edge_dump(dir, "diff", k, id, gpre, pre);
         }
     }
-    ctx->pc = ctx->gpr[0]._u32[0];
+    /* the lifted code's state stands; a function returns through r0, a chunk
+     * goes on at its continuation (the hook's transfer) */
+    if (!k->cont) ctx->pc = ctx->gpr[0]._u32[0];
     return 1;
 }
 #define EDGE_HOOK(i) static int edge_hook_##i(spu_context* ctx) { return edge_entry(ctx, &g_kern[i]); }
 EDGE_HOOK(0)
 EDGE_HOOK(1)
 EDGE_HOOK(2)
+EDGE_HOOK(3)
+EDGE_HOOK(4)
 int spu_native_register(int image_id, uint32_t addr, int (*fn)(spu_context*));
 __attribute__((constructor)) static void edge_register(void)
 {
-    static int (*const hooks[])(spu_context*) = { edge_hook_0, edge_hook_1, edge_hook_2 };
+    static int (*const hooks[])(spu_context*) = { edge_hook_0, edge_hook_1, edge_hook_2, edge_hook_3, edge_hook_4 };
+    _Static_assert(sizeof hooks / sizeof hooks[0] == NKERN, "one hook per kernel");
     for (int i = 0; i < NKERN; i++) spu_native_register(EDGE_IMAGE, g_kern[i].addr, hooks[i]);
 }
 #endif
