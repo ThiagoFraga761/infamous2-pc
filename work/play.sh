@@ -25,10 +25,15 @@ export PS3RECOMP_VK_WINDOW=1
 # PS3RECOMP_RES_SCALE=2 (or 3) renders at that multiple of 1280x720.
 # PS3RECOMP_VK_FULLSCREEN=1 opens the window fullscreen.
 export SDL_NO_SIGNAL_HANDLERS=1
-# 60 fps cap: the uncapped game swings between ~110 and ~35 fps in the city, and
-# a steady 60 felt better and halved the worst frames. PS3RECOMP_FPS_LIMIT=0
-# runs uncapped; the in-game menu's setting is overridden while this is set.
-export PS3RECOMP_FPS_LIMIT="${PS3RECOMP_FPS_LIMIT:-60}"
+# The FPS limit comes from user/settings.ini (60 by default: the uncapped game
+# swings between ~110 and ~35 fps in the city, and a steady 60 felt better and
+# halved the worst frames), so the in-game menu (F1) can change it.
+# PS3RECOMP_FPS_LIMIT=<n> (0 = none) still overrides it for one run.
+# Drivers keep compiled shaders in one disk cache shared by every program,
+# capped at 1 GB and full on this desktop, so a driver update or another game
+# evicted this title's pipelines: seconds-long first frames. A cache of its own.
+export MESA_SHADER_CACHE_DIR="${MESA_SHADER_CACHE_DIR:-$HOME/.cache/ps3recomp/mesa}"
+export MESA_SHADER_CACHE_MAX_SIZE="${MESA_SHADER_CACHE_MAX_SIZE:-4G}"
 # Every 10 s, "[rsx fps] N fps ..." in this terminal.
 export PS3RECOMP_ENG_FPSLOG=1
 export PS3RECOMP_FTLOG=1
@@ -55,9 +60,8 @@ export SPU_DUMP_MISS="${SPU_DUMP_MISS:-$HERE/runs/spujob-miss}"
 # A job that gets stuck (past its step budget) leaves its staged local store
 # here, for PS3RECOMP_SPU_REPLAY=<file> work/port/build-vk/MyGameRecomp.
 export SPU_DUMP_STUCK="${SPU_DUMP_STUCK:-$HERE/runs/spujob-stuck}"
-# Every 200 laps of a job chain: how long a lap runs and how long it waits at
-# its guard (the audio chain has to keep up with the title's ~10 ms frames).
-export SPURS_JC_TIMING="${SPURS_JC_TIMING:-1}"
+# SPURS_JC_TIMING=1: every 200 laps of a job chain, how long a lap runs and how
+# long it waits at its guard. Off by default: it times every lap on the hot path.
 # The tee below makes stderr a pipe, and with stderr not a terminal the
 # runtime logs every SPU job and wait (thousands of lines a second, through
 # one lock): quiet unless asked for.
@@ -73,8 +77,9 @@ echo "log: $LOG"
 # A stall of a few seconds, the kind a player calls a freeze and that is over
 # before the watcher below acts: the game itself writes every thread's stack
 # into <log>-stalls/ when no frame comes for PS3_STALL_MS (main.cpp).
-# Name the main thread's usleep poll sites every 10 s: a freeze that spins on a flag shows its guest address in the log.
-export PS3_POLLTOP="${PS3_POLLTOP:-10}"
+# PS3_POLLTOP=10 names the main thread's usleep poll sites every 10 s (a freeze
+# that spins on a flag shows its guest address). Off by default: it counts on
+# the hot path, ~400k polls a second.
 export PS3_STALL_MS="${PS3_STALL_MS:-2500}"
 export PS3_STALL_DIR="${PS3_STALL_DIR:-${LOG%.log}-stalls}"
 mkdir -p "$PS3_STALL_DIR"
@@ -90,6 +95,13 @@ PERF="${PERF:-$(command -v perf || true)}" PERF_LIBS="${LD_LIBRARY_PATH:-}"
 if [ -z "$PERF" ] && [ -x "$HOME/tools/perf-rpm/root/usr/bin/perf" ]; then   # unpacked from the rpm
     PERF="$HOME/tools/perf-rpm/root/usr/bin/perf"
     PERF_LIBS="$HOME/tools/perf-rpm/root/usr/lib64${PERF_LIBS:+:$PERF_LIBS}"
+fi
+# Under an FPS limit the game never gets above it, so "slow" is 5 under it.
+fps_cap="${PS3RECOMP_FPS_LIMIT:-$(sed -n 's/^fps_limit *= *\([0-9]*\).*/\1/p' "$ROOT/user/settings.ini" 2>/dev/null | head -1)}"
+fps_cap="${fps_cap:-60}"
+if [ -z "${PLAY_PROFILE_BELOW:-}" ]; then
+    PLAY_PROFILE_BELOW=70
+    if [ "$fps_cap" -gt 0 ] 2>/dev/null && [ $((fps_cap - 5)) -lt 70 ]; then PLAY_PROFILE_BELOW=$((fps_cap - 5)); fi
 fi
 watch_stall() {
     set +e                             # a failing probe must not end the watcher

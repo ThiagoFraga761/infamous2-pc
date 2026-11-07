@@ -46,7 +46,7 @@ void port_settings_defaults(port_settings* s)
     s->display = 0;
     snprintf(s->voice, sizeof s->voice, "brazilian");
     snprintf(s->text, sizeof s->text, "brazilian");
-    s->fps_limit = 0;
+    s->fps_limit = 60;
     s->fps_counter = 0;
     s->record_thread = 1;
     s->skip_launcher = 0;

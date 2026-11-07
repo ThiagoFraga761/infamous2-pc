@@ -35,9 +35,15 @@
 #endif
 #include <windows.h>
 #include <shellapi.h>
-#include <filesystem>
+#else
+#include <fcntl.h>
+#include <spawn.h>
+#include <sys/wait.h>
+extern char** environ;
 #endif
+#include <filesystem>
 
+extern "C" void port_log_restore(void);   /* main.cpp */
 extern "C" void rsx_vulkan_backend_set_fullscreen(int on);
 extern "C" void rsx_vulkan_backend_set_vsync(int on);
 extern "C" void rsx_vulkan_backend_set_stretch(int on);
@@ -70,8 +76,9 @@ const Lang k_langs[] = {
     { "chinese",    "Chinês (experimental)",        false },
 };
 const char* const k_scales[] = { "720p (1x)", "1440p (2x)", "4K (3x)" };
-const int k_fps_limits[] = { 0, 30, 60, 120, -1 };
-const char* const k_fps_names[] = { "Sem limite", "30", "60", "120", "Taxa do monitor" };
+const int k_fps_limits[] = { 0, 30, 40, 60, 80, 120, 240, -1 };
+const char* const k_fps_names[] = { "Sem limite", "30", "40", "60", "80", "120", "240", "Taxa do monitor" };
+const int k_fps_n = (int)(sizeof k_fps_limits / sizeof k_fps_limits[0]);
 
 port_settings g_boot;          /* as the game started: what a restart would change */
 int g_argc; char** g_argv;
@@ -165,14 +172,6 @@ void pin_end(unsigned bit)
         ImGui::SetTooltip("Definido por uma variável de ambiente (play.sh ou o terminal)");
 }
 
-/* `t` inside single quotes for the shell. */
-std::string sh_quote(const std::string& t)
-{
-    std::string q = "'";
-    for (char c : t) q += c == '\'' ? std::string("'\\''") : std::string(1, c);
-    return q + "'";
-}
-
 const char* saves_dir()
 {
     const char* e = getenv("PS3_SAVEDATA_ROOT");
@@ -229,8 +228,19 @@ void open_folder(const char* path)
     if ((INT_PTR)ShellExecuteA(NULL, "open", full, NULL, NULL, SW_SHOWNORMAL) <= 32)
         fprintf(stderr, "[ui] could not open %s\n", path);
 #else
-    const std::string cmd = "xdg-open " + sh_quote(path) + " >/dev/null 2>&1 &";
-    if (system(cmd.c_str()) != 0) fprintf(stderr, "[ui] could not open %s\n", path);
+    /* posix_spawn, not system(): a fork of this process copies its page
+     * tables and stops every thread for seconds. */
+    char* argv[] = { (char*)"xdg-open", (char*)path, NULL };
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_addopen(&fa, 1, "/dev/null", O_WRONLY, 0);
+    posix_spawn_file_actions_addopen(&fa, 2, "/dev/null", O_WRONLY, 0);
+    pid_t pid;
+    if (posix_spawnp(&pid, "xdg-open", &fa, NULL, argv, environ) != 0)
+        fprintf(stderr, "[ui] could not open %s\n", path);
+    else
+        std::thread([pid] { int st; waitpid(pid, &st, 0); }).detach();
+    posix_spawn_file_actions_destroy(&fa);
 #endif
 }
 
@@ -245,16 +255,11 @@ bool backup_saves()
     strftime(ts, sizeof ts, "%Y%m%d-%H%M%S", localtime(&t));
     const char* u = getenv("PS3_USER_DIR");
     const std::string dst = std::string(u && *u ? u : "user") + "/backups/" + ts;
-#ifdef _WIN32
+    /* In process: system() would fork, and a fork stops the game for seconds. */
     std::error_code ec;
     std::filesystem::create_directories(dst, ec);
     if (!ec) std::filesystem::copy(saves_dir(), dst, std::filesystem::copy_options::recursive, ec);
     const bool ok = !ec;
-#else
-    const std::string cmd = "mkdir -p " + sh_quote(dst) + " && cp -a " + sh_quote(std::string(saves_dir()) + "/.") +
-                            " " + sh_quote(dst + "/");
-    const bool ok = system(cmd.c_str()) == 0;
-#endif
     g_last_backup = ok ? "Backup em " + dst : "O backup dos saves falhou";
     return ok;
 }
@@ -306,18 +311,17 @@ void page_performance(port_settings& s)
 {
     ImGui::TextUnformatted("Predefinição");
     const char* names[] = { "Desempenho (720p)", "Equilibrado (1440p)", "Qualidade (4K)" };
-    pin_begin(PORT_PIN_SCALE | PORT_PIN_RECORD_THREAD | PORT_PIN_FPS_LIMIT);
+    pin_begin(PORT_PIN_SCALE | PORT_PIN_RECORD_THREAD);
     for (int i = 0; i < 3; i++) {
         if (i) ImGui::SameLine();
-        if (ImGui::Button(names[i])) { s.scale = i + 1; s.record_thread = 1; s.fps_limit = 0;
-                                       rsx_vulkan_backend_set_fps_limit(0); save(); }
+        if (ImGui::Button(names[i])) { s.scale = i + 1; s.record_thread = 1; save(); }
     }
-    pin_end(PORT_PIN_SCALE | PORT_PIN_RECORD_THREAD | PORT_PIN_FPS_LIMIT);
+    pin_end(PORT_PIN_SCALE | PORT_PIN_RECORD_THREAD);
     int li = 0;
-    for (int i = 0; i < 5; i++) if (k_fps_limits[i] == s.fps_limit) li = i;
-    if (s.fps_limit > 0 && k_fps_limits[li] != s.fps_limit) li = 4;
+    for (int i = 0; i < k_fps_n; i++) if (k_fps_limits[i] == s.fps_limit) li = i;
+    if (s.fps_limit > 0 && k_fps_limits[li] != s.fps_limit) li = k_fps_n - 1;
     pin_begin(PORT_PIN_FPS_LIMIT);
-    if (ImGui::Combo("Limite de FPS", &li, k_fps_names, 5)) {
+    if (ImGui::Combo("Limite de FPS", &li, k_fps_names, k_fps_n)) {
         int v = k_fps_limits[li];
         if (v < 0) {
             SDL_DisplayMode dm;
@@ -457,8 +461,17 @@ void draw_menu()
         ImGui::PopStyleColor();
         ImGui::SameLine();
     }
-    ImGui::SetCursorPosX(ImGui::GetWindowWidth() - fs * 7.5f);
-    if (ImGui::Button("Fechar  (F1)")) rsx_ui_set_menu_open(0);
+    /* Escape opens this menu now, so quitting is here, behind a second click:
+     * whatever the game has not saved is lost. */
+    static bool quit_armed = false;
+    if (!rsx_ui_menu_open()) quit_armed = false;
+    ImGui::SetCursorPosX(ImGui::GetWindowWidth() - fs * (quit_armed ? 22.0f : 14.5f));
+    if (ImGui::Button(quit_armed ? "Sair sem salvar? Confirmar" : "Sair do jogo")) {
+        if (quit_armed) { port_log_drain(); _Exit(0); }
+        quit_armed = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Fechar  (F1)")) { quit_armed = false; rsx_ui_set_menu_open(0); }
     ImGui::End();
 }
 
@@ -583,6 +596,7 @@ void play()
 #ifdef _WIN32
             win_restart(g_argv, env);
 #else
+            port_log_restore();
             char self[4096];
             const ssize_t n = readlink("/proc/self/exe", self, sizeof self - 1);
             if (n > 0) { self[n] = 0; execve(self, g_argv, env); }

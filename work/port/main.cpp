@@ -586,6 +586,14 @@ extern "C" void port_log_drain(void)
         pthread_mutex_unlock(&L.lock);
     }
 }
+/* Before an execve: the log drained, and stdout and stderr back on what they
+ * were at start, for the next process to pump again. */
+extern "C" void port_log_restore(void)
+{
+    port_log_drain();
+    for (int i = 0; i < 2; i++)
+        if (s_logs[i].out >= 0) dup2(s_logs[i].out, i ? STDERR_FILENO : STDOUT_FILENO);
+}
 static void log_pump_start(void)
 {
     const char* e = getenv("PS3_LOG_DIRECT");
@@ -593,10 +601,13 @@ static void log_pump_start(void)
     fflush(stdout); fflush(stderr);
     for (int i = 0; i < 2; i++) {
         const int fd = i ? STDERR_FILENO : STDOUT_FILENO;
+        /* Close-on-exec: the restart for new settings (ui.cpp) execs this
+         * binary again, and the pipe would outlive the threads that empty it --
+         * the new process logged into a pipe nobody read. */
         int fds[2];
-        if (pipe(fds) != 0) return;
+        if (pipe2(fds, O_CLOEXEC) != 0) return;
         fcntl(fds[1], F_SETPIPE_SZ, 1 << 20);
-        s_logs[i].out = dup(fd);
+        s_logs[i].out = fcntl(fd, F_DUPFD_CLOEXEC, 0);
         s_logs[i].in = fds[0];
         dup2(fds[1], fd);
         close(fds[1]);
@@ -612,6 +623,10 @@ static void log_pump_start(void)
 extern "C" void port_log_drain(void)
 {
     fflush(stdout); fflush(stderr);
+}
+extern "C" void port_log_restore(void)
+{
+    port_log_drain();
 }
 #endif
 
