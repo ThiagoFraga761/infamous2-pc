@@ -216,29 +216,102 @@ extern "C" unsigned ppu_boot_frames_presented(void)
 
 #ifndef _WIN32
 extern "C" void port_log_drain(void);   /* below, with the log pump */
+/* libs/debug/freeze_dump.c in the fork: the runtime's own state as text. */
+extern "C" int ps3_freeze_dump_to(const char* path, const char* why);
+
+/* mkdir -p, for the freeze folder: made only when a freeze comes, so a run
+ * without one leaves nothing behind. */
+static void stall_mkdirs(const char* dir)
+{
+    char p[1024];
+    snprintf(p, sizeof p, "%s", dir);
+    for (char* c = p + 1; *c; c++)
+        if (*c == '/') { *c = 0; mkdir(p, 0755); *c = '/'; }
+    mkdir(p, 0755);
+}
+
+/* The last 512 KB of the run's log beside the state (PS3_FREEZE_LOG, which
+ * play.sh points at its log): the logs of a freeze session tend to be gone by
+ * the time anyone looks, and the freeze folder is kept out of the clean-ups.
+ * Read from the file, never through the log pump, which may be what is stuck. */
+static void stall_copy_log_tail(const char* dir, int id)
+{
+    const char* log = getenv("PS3_FREEZE_LOG");
+    if (!log || !*log) return;
+    const int in = open(log, O_RDONLY | O_CLOEXEC);
+    if (in < 0) return;
+    char path[1024];
+    snprintf(path, sizeof path, "%s/stall-%d.log-tail", dir, id);
+    const int out = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+    if (out >= 0) {
+        const off_t end = lseek(in, 0, SEEK_END);
+        lseek(in, end > (512 << 10) ? end - (512 << 10) : 0, SEEK_SET);
+        char b[65536];
+        ssize_t n;
+        while ((n = read(in, b, sizeof b)) > 0)
+            if (write(out, b, (size_t)n) != n) break;
+        close(out);
+    }
+    close(in);
+}
+
+/* PS3_FREEZE_DUMP (on unless =0): the runtime's state (ps3_freeze_dump) into
+ * <PS3_FREEZE_DIR or PS3_STALL_DIR>/stall-<n>.state as the stall is seen, and
+ * stall-<n>.15s.state if it is still on 15 s in. The stacks say where the
+ * main thread spins; the state says which fence, guard credit or event never
+ * came -- the two freezes left after 19/10 had only the stacks. Written before
+ * the stacks, while every thread still runs: eu-stack stops them all. */
+static void stall_dump_state(const char* dir, int id, const char* when, long gap_ms)
+{
+    static int on = -1;
+    if (on < 0) { const char* e = getenv("PS3_FREEZE_DUMP"); on = !e || e[0] != '0'; }
+    if (!on) return;
+    stall_mkdirs(dir);
+    char path[1024], why[96];
+    snprintf(path, sizeof path, "%s/stall-%d%s.state", dir, id, when);
+    snprintf(why, sizeof why, "no frame for %ld ms (stall %d)", gap_ms, id);
+    const int rc = ps3_freeze_dump_to(path, why);
+    stall_copy_log_tail(dir, id);
+    fprintf(stderr, "[stall] runtime state: %s%s\n", path, rc ? " (could not write)" : "");
+    fflush(stderr);
+}
+
 /* PS3_STALL_MS=<ms>, with PS3_STALL_DIR=<dir>: once the game has drawn frames,
  * a gap of that long with none sends every thread's stack (eu-stack) to
  * <dir>/stall-<n>.stacks, once per gap and at most 8 a run. The play.sh
  * watcher only acts after 15 s of nothing; the stalls of a few seconds that a
- * player calls a freeze are over by then, and they leave no trace. */
+ * player calls a freeze are over by then, and they leave no trace.
+ * PS3_FREEZE_DIR=<dir>: the runtime state (above) and the log tail go there,
+ * with a hard link to the stacks, instead of beside them. */
 static void* stall_watch(void*)
 {
     const char* e = getenv("PS3_STALL_MS");
     const char* dir = getenv("PS3_STALL_DIR");
     const long ms = e ? atol(e) : 0;
     if (ms <= 0 || !dir || !*dir) return NULL;
+    const char* fdir = getenv("PS3_FREEZE_DIR");
+    if (!fdir || !*fdir) fdir = dir;
     pthread_setname_np(pthread_self(), "stall-watch");
     unsigned last = 0;
     unsigned long long since = ps3_qpc_us();
-    int armed = 1, n = 0;
+    int armed = 1, n = 0, late_due = 0;
     for (;;) {
         usleep(50000);
         const unsigned f = (unsigned)g_frames_presented;
         const unsigned long long now = ps3_qpc_us();
-        if (f != last) { last = f; since = now; armed = 1; continue; }
+        if (f != last) { last = f; since = now; armed = 1; late_due = 0; continue; }
+        /* Still no frame 15 s in: the second look tells a slow stretch from a
+         * freeze, and shows what moved in between. */
+        if (late_due && now - since >= 15000000ull) {
+            late_due = 0;
+            stall_dump_state(fdir, n, ".15s", (long)((now - since) / 1000u));
+        }
         if (f < 100 || !armed || now - since < (unsigned long long)ms * 1000ull) continue;
         armed = 0;
         if (n >= 8) continue;
+        const int id = ++n;
+        stall_dump_state(fdir, id, "", ms);
+        late_due = 15000ll > ms;
         /* PS3_STALL_PERF=<perf binary>: 2 s of samples of every thread instead
          * (perf record), which barely touches the process. eu-stack stops every
          * thread while it unwinds -- seconds on this binary -- and so made the
@@ -256,14 +329,14 @@ static void* stall_watch(void*)
         pid_t child = -1;
         int rc;
         if (perf && *perf) {
-            snprintf(path, sizeof path, "%s/stall-%d.perf.data", dir, ++n);
+            snprintf(path, sizeof path, "%s/stall-%d.perf.data", dir, id);
             posix_spawn_file_actions_addopen(&fa, 1, "/dev/null", O_WRONLY, 0);
             posix_spawn_file_actions_addopen(&fa, 2, "/dev/null", O_WRONLY, 0);
             char* const av[] = { (char*)perf, (char*)"record", (char*)"-q", (char*)"-F", (char*)"999",
                                  (char*)"-p", pid, (char*)"-o", path, (char*)"--", (char*)"sleep", (char*)"2", NULL };
             rc = posix_spawn(&child, perf, &fa, NULL, av, environ);
         } else {
-            snprintf(path, sizeof path, "%s/stall-%d.stacks", dir, ++n);
+            snprintf(path, sizeof path, "%s/stall-%d.stacks", dir, id);
             posix_spawn_file_actions_addopen(&fa, 1, path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
             posix_spawn_file_actions_adddup2(&fa, 1, 2);
             char* const av[] = { (char*)"eu-stack", (char*)"-p", pid, (char*)"-n", (char*)"40", NULL };
@@ -273,6 +346,12 @@ static void* stall_watch(void*)
         fprintf(stderr, "[stall] no frame for %ld ms: %s%s\n", ms, path, rc ? " (could not start)" : "");
         fflush(stderr);
         if (!rc) waitpid(child, NULL, 0);
+        if (!rc && strcmp(fdir, dir) != 0) {
+            char lpath[1024];
+            const char* base = strrchr(path, '/');
+            snprintf(lpath, sizeof lpath, "%s%s", fdir, base ? base : "/stall.stacks");
+            if (link(path, lpath) != 0 && errno != EEXIST && symlink(path, lpath) != 0) {}
+        }
     }
     return NULL;
 }
