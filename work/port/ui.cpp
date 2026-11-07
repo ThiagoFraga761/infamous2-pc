@@ -18,6 +18,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -58,6 +59,13 @@ extern "C" unsigned ppu_boot_frames_presented(void);
 extern "C" volatile int g_savedata_title;   /* libs/system/cellSaveData.c */
 extern "C" char g_savedata_load[32];        /* ...and the save to continue */
 extern "C" void port_log_drain(void);       /* main.cpp: the log reaches its file */
+/* libs/input/cellPad.c (pad_kbm.h): keyboard and mouse as the pad. Called from
+ * the menu, which runs on the window's thread like the feed itself. */
+extern "C" void cellPad_kbm_set_enabled(int on);
+extern "C" void cellPad_kbm_set_sensitivity(float s);
+extern "C" void cellPad_kbm_set_invert_y(int on);
+extern "C" void cellPad_kbm_set_deadzone(float d);
+extern "C" const char* cellPad_kbm_binding(int i, char* key, int keycap);
 
 namespace {
 
@@ -467,6 +475,99 @@ void page_controller(port_settings& s)
     if (ImGui::Checkbox("Pular a tela de opções ao abrir o jogo (F1 abre no jogo)", &b)) { s.skip_launcher = b; save(); }
 }
 
+/* A pad control by the name cellPad gives it, in the menu's words. */
+const char* kbm_action_label(const char* a)
+{
+    static const struct { const char* a; const char* t; } k[] = {
+        { "CROSS", "Xis" }, { "CIRCLE", "Bola" }, { "SQUARE", "Quadrado" }, { "TRIANGLE", "Triângulo" },
+        { "START", "Start" }, { "SELECT", "Select" },
+        { "UP", "Direcional: cima" }, { "DOWN", "Direcional: baixo" },
+        { "LEFT", "Direcional: esquerda" }, { "RIGHT", "Direcional: direita" },
+        { "LS_UP", "Andar: frente" }, { "LS_DOWN", "Andar: trás" },
+        { "LS_LEFT", "Andar: esquerda" }, { "LS_RIGHT", "Andar: direita" },
+        { "RS_UP", "Câmera: cima" }, { "RS_DOWN", "Câmera: baixo" },
+        { "RS_LEFT", "Câmera: esquerda" }, { "RS_RIGHT", "Câmera: direita" },
+        { "WALK", "Andar devagar" },
+    };
+    for (const auto& e : k)
+        if (!strcmp(e.a, a)) return e.t;
+    return a;   /* L1, R1, L2, R2, L3, R3 */
+}
+
+/* A key by the name cellPad gives it, where the menu's words differ. */
+const char* kbm_key_label(const char* key)
+{
+    static const struct { const char* k; const char* t; } m[] = {
+        { "MouseLeft", "Mouse: esquerdo" }, { "MouseRight", "Mouse: direito" },
+        { "MouseMiddle", "Mouse: meio" }, { "Mouse4", "Mouse: lateral 1" }, { "Mouse5", "Mouse: lateral 2" },
+        { "WheelUp", "Roda: para cima" }, { "WheelDown", "Roda: para baixo" },
+        { "Space", "Espaço" }, { "LShift", "Shift esquerdo" }, { "LCtrl", "Ctrl esquerdo" },
+        { "Up", "Seta para cima" }, { "Down", "Seta para baixo" },
+        { "Left", "Seta para a esquerda" }, { "Right", "Seta para a direita" },
+    };
+    for (const auto& e : m)
+        if (!strcmp(e.k, key)) return e.t;
+    return key;
+}
+
+void page_kbm(port_settings& s)
+{
+    bool b = s.kbm;
+    pin_begin(PORT_PIN_KBM);
+    if (ImGui::Checkbox("Jogar com teclado e mouse", &b)) { s.kbm = b; cellPad_kbm_set_enabled(b); save(); }
+    pin_end(PORT_PIN_KBM);
+    ImGui::BeginDisabled(!s.kbm);
+    /* Live; saved once a slider is let go, not on every step. */
+    float sens = s.kbm_sens / 100.0f;
+    pin_begin(PORT_PIN_KBM_SENS);
+    if (ImGui::SliderFloat("Sensibilidade do mouse", &sens, 0.10f, 5.00f, "%.2f",
+                           ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp)) {
+        s.kbm_sens = (int)lroundf(sens * 100.0f);
+        cellPad_kbm_set_sensitivity(s.kbm_sens / 100.0f);
+    }
+    if (ImGui::IsItemDeactivatedAfterEdit()) save();
+    pin_end(PORT_PIN_KBM_SENS);
+    b = s.kbm_invert_y;
+    pin_begin(PORT_PIN_KBM_INVERT_Y);
+    if (ImGui::Checkbox("Inverter o eixo vertical", &b)) { s.kbm_invert_y = b; cellPad_kbm_set_invert_y(b); save(); }
+    pin_end(PORT_PIN_KBM_INVERT_Y);
+    int dz = s.kbm_deadzone;
+    pin_begin(PORT_PIN_KBM_DEADZONE);
+    if (ImGui::SliderInt("Início do giro", &dz, 0, 60, "%d%%", ImGuiSliderFlags_AlwaysClamp)) {
+        s.kbm_deadzone = dz;
+        cellPad_kbm_set_deadzone(dz / 100.0f);
+    }
+    if (ImGui::IsItemDeactivatedAfterEdit()) save();
+    pin_end(PORT_PIN_KBM_DEADZONE);
+    ImGui::EndDisabled();
+    hint("O mouse faz o papel do analógico direito: a câmera gira na velocidade do próprio jogo, "
+         "ainda sem mira 1:1. \"Início do giro\" é onde o analógico começa no menor movimento: "
+         "suba se o mouse devagar não mexe a câmera, desça se ela dá tranco. O mouse é capturado "
+         "no primeiro clique ou tecla dentro do jogo; Alt+Tab e F1 soltam. Funciona junto com o "
+         "controle. Para trocar teclas: [keyboard] map em user/settings.ini.");
+    /* The layout as cellPad has it (the default plus [keyboard] map). It
+     * scrolls inside what is left above the menu's bottom row. */
+    const float fs = ImGui::GetFontSize();
+    const float h = ImGui::GetContentRegionAvail().y - fs * 3.6f;
+    if (h < fs * 3.0f) return;
+    if (ImGui::BeginChild("kbm_keys", ImVec2(0, h), ImGuiChildFlags_Borders)) {
+        if (ImGui::BeginTable("kbm_map", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+            char key[32];
+            for (int i = 0;; i++) {
+                const char* a = cellPad_kbm_binding(i, key, sizeof key);
+                if (!a) break;
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextUnformatted(kbm_key_label(key));
+                ImGui::TableSetColumnIndex(1);
+                ImGui::TextUnformatted(kbm_action_label(a));
+            }
+            ImGui::EndTable();
+        }
+    }
+    ImGui::EndChild();
+}
+
 /* What changed since the game started and needs a restart. */
 std::string restart_note(const port_settings& s)
 {
@@ -499,6 +600,7 @@ void draw_menu()
         if (ImGui::BeginTabItem("Desempenho")) { page_performance(s); ImGui::EndTabItem(); }
         if (ImGui::BeginTabItem("Mods")) { page_mods(s); ImGui::EndTabItem(); }
         if (ImGui::BeginTabItem("Controle e saves")) { page_controller(s); ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem("Teclado e mouse")) { page_kbm(s); ImGui::EndTabItem(); }
         ImGui::EndTabBar();
     }
     const std::string note = restart_note(s);
@@ -819,6 +921,7 @@ void draw_start()
             if (ImGui::BeginTabItem("Desempenho")) { page_performance(s); ImGui::EndTabItem(); }
             if (ImGui::BeginTabItem("Mods")) { page_mods(s); ImGui::EndTabItem(); }
             if (ImGui::BeginTabItem("Controle e saves")) { page_controller(s); ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Teclado e mouse")) { page_kbm(s); ImGui::EndTabItem(); }
             ImGui::EndTabBar();
         }
         const std::string note = restart_note(s);

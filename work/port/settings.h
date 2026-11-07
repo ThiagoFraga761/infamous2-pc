@@ -36,6 +36,12 @@ typedef struct port_settings {
     int fullres_particles;  /* PS3RECOMP_FULLRES_PARTICLES */
     int aniso;              /* PS3RECOMP_ANISO: 0 (the game's own), 2, 4, 8, 16 */
     char mods_on[512];      /* the enabled mod folders, comma-separated, in load order */
+    /* [keyboard]: keyboard and mouse as the pad (libs/input/pad_kbm.h), live */
+    int kbm;                /* PS3RECOMP_KBM: 1 on, 0 off */
+    int kbm_sens;           /* mouse sensitivity in hundredths, 10..500: PS3RECOMP_KBM_SENS */
+    int kbm_invert_y;       /* PS3RECOMP_KBM_INVERT_Y */
+    int kbm_deadzone;       /* the stick's starting deflection, percent 0..60: PS3RECOMP_KBM_DEADZONE */
+    char kbm_map[512];      /* "Key=ACTION ..." over the default layout: PS3RECOMP_KBM_MAP */
 } port_settings;
 
 /* The defaults: today's play.sh -- 720p, a window, mailbox, black bars,
@@ -58,7 +64,8 @@ enum {
     PORT_PIN_TEXT = 1 << 6, PORT_PIN_FPS_LIMIT = 1 << 7, PORT_PIN_RECORD_THREAD = 1 << 8,
     PORT_PIN_PARTICLES = 1 << 9, PORT_PIN_ANISO = 1 << 10, PORT_PIN_FOV = 1 << 11,
     PORT_PIN_POST_AA = 1 << 12, PORT_PIN_UPSCALE = 1 << 13, PORT_PIN_DOWNSCALE = 1 << 14,
-    PORT_PIN_SHARPEN = 1 << 15,
+    PORT_PIN_SHARPEN = 1 << 15, PORT_PIN_KBM = 1 << 16, PORT_PIN_KBM_SENS = 1 << 17,
+    PORT_PIN_KBM_INVERT_Y = 1 << 18, PORT_PIN_KBM_DEADZONE = 1 << 19,
 };
 
 /* Before port_settings_export: each field whose variable is set takes the
