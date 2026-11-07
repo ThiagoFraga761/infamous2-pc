@@ -1,5 +1,5 @@
 diff --git a/.gitignore b/.gitignore
-index d320252..a075898 100644
+index d3202526..a075898f 100644
 --- a/.gitignore
 +++ b/.gitignore
 @@ -106,3 +106,6 @@ build-gate/
@@ -10,7 +10,7 @@ index d320252..a075898 100644
 +# SPU differential test build products (runtime/spu/tests/build_diff_test.sh)
 +runtime/spu/tests/build_diff/
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index f843504..705523d 100644
+index f843504e..705523dd 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -26,7 +26,7 @@ option(PS3RECOMP_BUILD_TESTS "Build unit tests" OFF)
@@ -145,7 +145,7 @@ index f843504..705523d 100644
  
          add_executable(ps3recomp_boot_smoke
 diff --git a/docs/DIAGNOSTICS.md b/docs/DIAGNOSTICS.md
-index c7a0fd4..3441723 100644
+index c7a0fd4d..34417238 100644
 --- a/docs/DIAGNOSTICS.md
 +++ b/docs/DIAGNOSTICS.md
 @@ -992,7 +992,7 @@ not changed while a title runs.
@@ -176,7 +176,7 @@ index c7a0fd4..3441723 100644
  - **`SPU_IRQTRACE`** — _(no description in source)_
    `runtime/spu/spu_channels.c:1548`  _(+1 more sites)_
 diff --git a/docs/FIRMWARE_LLE.md b/docs/FIRMWARE_LLE.md
-index 863e9d1..7056a0e 100644
+index 863e9d12..7056a0e3 100644
 --- a/docs/FIRMWARE_LLE.md
 +++ b/docs/FIRMWARE_LLE.md
 @@ -139,27 +139,42 @@ discovery pass (branch targets, tail entries) fills in interior functions within
@@ -245,7 +245,7 @@ index 863e9d1..7056a0e 100644
  
 diff --git a/docs/KNOWN_DIFFERENCES.md b/docs/KNOWN_DIFFERENCES.md
 new file mode 100644
-index 0000000..670ae7e
+index 00000000..670ae7e1
 --- /dev/null
 +++ b/docs/KNOWN_DIFFERENCES.md
 @@ -0,0 +1,94 @@
@@ -344,7 +344,7 @@ index 0000000..670ae7e
 +`type_base | index << step` and maps an id back to its slot, with the type checked on
 +lookup (a wrong-type id is ESRCH, as on lv2).
 diff --git a/libs/audio/cellAudio.c b/libs/audio/cellAudio.c
-index b51fb7c..d2f8c67 100644
+index b51fb7c4..d2f8c671 100644
 --- a/libs/audio/cellAudio.c
 +++ b/libs/audio/cellAudio.c
 @@ -373,7 +373,7 @@ static int audio_backend_room(void)
@@ -445,7 +445,7 @@ index b51fb7c..d2f8c67 100644
                  portNum, port->running ? "RUN" : "READY",
                  (u32)port->port_addr, (u32)port->read_idx_addr); }
 diff --git a/libs/codec/cellAdec.c b/libs/codec/cellAdec.c
-index 3da7017..9484872 100644
+index 3da70179..9484872d 100644
 --- a/libs/codec/cellAdec.c
 +++ b/libs/codec/cellAdec.c
 @@ -97,7 +97,7 @@ static void adec_notify(CellAdecHandle handle, u32 msg_type, s32 msg_data)
@@ -476,7 +476,7 @@ index 3da7017..9484872 100644
                 handle, GUEST_EA(pcmItem),
                 handle < MAX_ADEC ? s_adec[handle].hasPcm : -1); }
 diff --git a/libs/filesystem/cellFs.c b/libs/filesystem/cellFs.c
-index 5166a47..daf0bfa 100644
+index 5166a47d..daf0bfaf 100644
 --- a/libs/filesystem/cellFs.c
 +++ b/libs/filesystem/cellFs.c
 @@ -14,6 +14,7 @@
@@ -503,7 +503,7 @@ index 5166a47..daf0bfa 100644
                     (uint32_t)(uintptr_t)buf,
                     (unsigned long long)nbytes, (unsigned long long)bytes_read);
 diff --git a/libs/filesystem/cellFsUtility.c b/libs/filesystem/cellFsUtility.c
-index 3f74504..512e50e 100644
+index 3f745045..512e50e6 100644
 --- a/libs/filesystem/cellFsUtility.c
 +++ b/libs/filesystem/cellFsUtility.c
 @@ -18,6 +18,7 @@
@@ -525,7 +525,7 @@ index 3f74504..512e50e 100644
  
      if (bytesRead) vm_write64((u32)(uintptr_t)bytesRead, (u64)n);
 diff --git a/libs/input/cellPad.c b/libs/input/cellPad.c
-index f2b4c11..fc08e7c 100644
+index f2b4c119..4c8e367e 100644
 --- a/libs/input/cellPad.c
 +++ b/libs/input/cellPad.c
 @@ -287,8 +287,13 @@ static u8 pad_sdl_trigger_to_u8(int raw)
@@ -803,15 +803,26 @@ index f2b4c11..fc08e7c 100644
            printf("[cellPad] PeriphGetInfo(max=%u now=%u) -> STANDARD class\n",
                   info->max_connect, connected); }
      return CELL_OK;
-@@ -1083,12 +1243,14 @@ s32 cellPadSetActDirect(u32 port_no, CellPadActParam* param)
+@@ -1076,19 +1236,23 @@ s32 cellPadSetActDirect(u32 port_no, CellPadActParam* param)
+     if (port_no < PAD_MAX_HOST_PORTS && s_host_state[port_no].connected) {
+         XINPUT_VIBRATION vib;
+         vib.wLeftMotorSpeed  = (WORD)(param->motor[CELL_PAD_ACTUATOR_PARAM_LARGE] * 257);
+-        vib.wRightMotorSpeed = (WORD)(param->motor[CELL_PAD_ACTUATOR_PARAM_SMALL] * 257);
++        vib.wRightMotorSpeed = (WORD)(param->motor[CELL_PAD_ACTUATOR_PARAM_SMALL] ? 0xFFFF : 0);   /* on/off */
+         XInputSetState((DWORD)port_no, &vib);
+     }
+ #endif
  
  #if PAD_BACKEND_SDL2
      if (port_no < PAD_MAX_HOST_PORTS && s_sdl_controllers[port_no]) {
 +        SDL_LockJoysticks();
          SDL_GameControllerRumble(
              s_sdl_controllers[port_no],
++            /* The large motor is 0-255; the small one is on/off (0 or 1),
++             * so scaling it like the large one made it 0.4%: no rumble. */
              (Uint16)(param->motor[CELL_PAD_ACTUATOR_PARAM_LARGE] * 257),
-             (Uint16)(param->motor[CELL_PAD_ACTUATOR_PARAM_SMALL] * 257),
+-            (Uint16)(param->motor[CELL_PAD_ACTUATOR_PARAM_SMALL] * 257),
++            (Uint16)(param->motor[CELL_PAD_ACTUATOR_PARAM_SMALL] ? 0xFFFF : 0),
              100 /* duration ms */
          );
 +        SDL_UnlockJoysticks();
@@ -819,7 +830,7 @@ index f2b4c11..fc08e7c 100644
  #endif
  
 diff --git a/libs/network/cellHttp.c b/libs/network/cellHttp.c
-index d39d88d..c7ec705 100644
+index d39d88df..c7ec705b 100644
 --- a/libs/network/cellHttp.c
 +++ b/libs/network/cellHttp.c
 @@ -34,6 +34,8 @@ typedef int http_socket_t;
@@ -842,7 +853,7 @@ index d39d88d..c7ec705 100644
              /* Error - if we already have some data, return it */
              if (filled > 0)
 diff --git a/libs/network/cellSsl.c b/libs/network/cellSsl.c
-index 7ed91da..2cff0a7 100644
+index 7ed91daf..2cff0a71 100644
 --- a/libs/network/cellSsl.c
 +++ b/libs/network/cellSsl.c
 @@ -19,6 +19,7 @@
@@ -864,7 +875,7 @@ index 7ed91da..2cff0a7 100644
      } else {
          for (u32 i = 0; i < size; i++)
 diff --git a/libs/network/sysNet.c b/libs/network/sysNet.c
-index 8be6664..34c4e1b 100644
+index 8be6664a..34c4e1b7 100644
 --- a/libs/network/sysNet.c
 +++ b/libs/network/sysNet.c
 @@ -55,6 +55,7 @@
@@ -897,7 +908,7 @@ index 8be6664..34c4e1b 100644
          if (s_sockets[s].p2p && n > 0) {
              uint32_t un = (uint32_t)n;
 diff --git a/libs/spurs/cellSpurs.c b/libs/spurs/cellSpurs.c
-index 688ff04..33eaf7b 100644
+index 688ff041..33eaf7b9 100644
 --- a/libs/spurs/cellSpurs.c
 +++ b/libs/spurs/cellSpurs.c
 @@ -14,11 +14,15 @@
@@ -3770,7 +3781,7 @@ index 688ff04..33eaf7b 100644
      return CELL_OK;
  }
 diff --git a/libs/spurs/cellSpurs.h b/libs/spurs/cellSpurs.h
-index 3023f1b..ddf2184 100644
+index 3023f1b3..ddf2184d 100644
 --- a/libs/spurs/cellSpurs.h
 +++ b/libs/spurs/cellSpurs.h
 @@ -30,18 +30,32 @@ extern "C" {
@@ -3828,7 +3839,7 @@ index 3023f1b..ddf2184 100644
  s32 cellSpursEventFlagWait(CellSpursEventFlag* eventFlag, u16* bits,
 diff --git a/libs/spurs/spurs_instance.h b/libs/spurs/spurs_instance.h
 new file mode 100644
-index 0000000..eb0596f
+index 00000000..eb0596fc
 --- /dev/null
 +++ b/libs/spurs/spurs_instance.h
 @@ -0,0 +1,102 @@
@@ -3936,7 +3947,7 @@ index 0000000..eb0596f
 +#endif
 diff --git a/libs/spurs/spurs_kernel.c b/libs/spurs/spurs_kernel.c
 new file mode 100644
-index 0000000..570ba85
+index 00000000..570ba85a
 --- /dev/null
 +++ b/libs/spurs/spurs_kernel.c
 @@ -0,0 +1,993 @@
@@ -4934,7 +4945,7 @@ index 0000000..570ba85
 +    ReleaseSRWLockExclusive(&s_table);
 +}
 diff --git a/libs/sync/cellSync.c b/libs/sync/cellSync.c
-index 8c70d74..da4bb87 100644
+index 8c70d74c..da4bb878 100644
 --- a/libs/sync/cellSync.c
 +++ b/libs/sync/cellSync.c
 @@ -58,7 +58,7 @@ static int sync_trace(void){ static int v=-1; if(v<0){const char*e=getenv("SYNC_
@@ -4948,7 +4959,7 @@ index 8c70d74..da4bb87 100644
  /* The mutex word is shared with SPU code that takes it with GETLLAR/PUTLLC.
 diff --git a/libs/system/cellLibprof.c b/libs/system/cellLibprof.c
 new file mode 100644
-index 0000000..921fe34
+index 00000000..921fe345
 --- /dev/null
 +++ b/libs/system/cellLibprof.c
 @@ -0,0 +1,20 @@
@@ -4974,7 +4985,7 @@ index 0000000..921fe34
 +}
 diff --git a/libs/system/cellLibprof.h b/libs/system/cellLibprof.h
 new file mode 100644
-index 0000000..3bb484a
+index 00000000..3bb484a3
 --- /dev/null
 +++ b/libs/system/cellLibprof.h
 @@ -0,0 +1,26 @@
@@ -5005,7 +5016,7 @@ index 0000000..3bb484a
 +
 +#endif
 diff --git a/libs/system/cellSaveData.c b/libs/system/cellSaveData.c
-index 79ea8ca..4a8d430 100644
+index 79ea8cab..f4e1c778 100644
 --- a/libs/system/cellSaveData.c
 +++ b/libs/system/cellSaveData.c
 @@ -15,6 +15,7 @@
@@ -5016,7 +5027,15 @@ index 79ea8ca..4a8d430 100644
  
  /* glibc's <sys/stat.h> exposes st_atime/st_mtime/st_ctime as macros (st_atim.tv_sec
   * etc.) that collide with the identically named members of CellSaveData*Stat; undef
-@@ -50,7 +51,21 @@
+@@ -40,6 +41,7 @@
+ #else
+ #  include <unistd.h>
+ #  include <dirent.h>
++#  include <fcntl.h>
+ #  include <sys/types.h>
+ #  define HOST_MKDIR(p) mkdir(p, 0755)
+ #  define HOST_STAT     stat
+@@ -50,7 +52,21 @@
   * Internal helpers
   * -----------------------------------------------------------------------*/
  
@@ -5039,7 +5058,17 @@ index 79ea8ca..4a8d430 100644
  
  /* Ensure directory (and parents) exist */
  static void ensure_dirs(const char* path)
-@@ -515,50 +530,50 @@ static u32 savedata_content_type(const char* name)
+@@ -502,7 +518,8 @@ static u32 enumerate_save_dirs(const char* prefix, CellSaveDataDirList* dirList,
+ /* System metadata belongs to the service, not the guest file list. */
+ static int savedata_system_file(const char* name)
+ {
+-    return !strcmp(name, "PARAM.SFO") || !strcmp(name, "PARAM.PFD");
++    /* Dot files are the host's own: ".<name>.tmp" is a save being written. */
++    return name[0] == '.' || !strcmp(name, "PARAM.SFO") || !strcmp(name, "PARAM.PFD");
+ }
+ 
+ static u32 savedata_content_type(const char* name)
+@@ -515,50 +532,50 @@ static u32 savedata_content_type(const char* name)
      return CELL_SAVEDATA_FILETYPE_NORMALFILE;
  }
  
@@ -5134,7 +5163,7 @@ index 79ea8ca..4a8d430 100644
  /* Enumerate files in a save directory. Returns count, fills fileList up to max. */
  static u32 enumerate_save_files(const char* save_path,
                                   CellSaveDataFileStat* fileList, u32 max)
-@@ -579,7 +594,7 @@ static u32 enumerate_save_files(const char* save_path,
+@@ -579,7 +596,7 @@ static u32 enumerate_save_files(const char* save_path,
                  continue;
              if (count < max && fileList) {
                  memset(&fileList[count], 0, sizeof(CellSaveDataFileStat));
@@ -5143,7 +5172,7 @@ index 79ea8ca..4a8d430 100644
                  strncpy(fileList[count].fileName, fd.cFileName,
                          CELL_SAVEDATA_FILENAME_SIZE - 1);
                  ULARGE_INTEGER sz;
-@@ -616,7 +631,7 @@ static u32 enumerate_save_files(const char* save_path,
+@@ -616,7 +633,7 @@ static u32 enumerate_save_files(const char* save_path,
  #endif
              if (count < max && fileList) {
                  memset(&fileList[count], 0, sizeof(CellSaveDataFileStat));
@@ -5152,7 +5181,7 @@ index 79ea8ca..4a8d430 100644
                  strncpy(fileList[count].fileName, de->d_name,
                          CELL_SAVEDATA_FILENAME_SIZE - 1);
                  fileList[count].st_size = (u64)st.st_size;
-@@ -686,7 +701,9 @@ static s32 process_file_op(const char* save_path, CellSaveDataFileSet* set)
+@@ -686,7 +703,9 @@ static s32 process_file_op(const char* save_path, CellSaveDataFileSet* set)
          }
          size_t read_size = (size_t)set->fileSize;
          if (read_size > set->fileBufSize) read_size = set->fileBufSize;
@@ -5162,7 +5191,58 @@ index 79ea8ca..4a8d430 100644
          int failed = ferror(fp);
          if (fclose(fp) != 0) failed = 1;
          return failed ? CELL_SAVEDATA_ERROR_ACCESS_ERROR : (s32)got;
-@@ -721,8 +738,8 @@ static s32 process_file_op(const char* save_path, CellSaveDataFileSet* set)
+@@ -695,6 +714,50 @@ static s32 process_file_op(const char* save_path, CellSaveDataFileSet* set)
+     case CELL_SAVEDATA_FILEOP_WRITE:
+     case CELL_SAVEDATA_FILEOP_WRITE_NOTRUNC: {
+         ensure_dirs(save_path);
++        if (set->fileOperation == CELL_SAVEDATA_FILEOP_WRITE && set->fileOffset == 0) {
++            /* A whole file: written beside it, flushed to disk and renamed
++             * over it, so a crash or a power cut mid-save (most sessions here
++             * end without a clean shutdown) leaves the old save or the new
++             * one, never half of each. */
++            size_t write_size = (size_t)set->fileSize;
++            if (write_size > set->fileBufSize) write_size = set->fileBufSize;
++            char tmp_path[1100];
++            snprintf(tmp_path, sizeof tmp_path, "%s/.%s.tmp", save_path, name);
++#ifdef _WIN32
++            for (char* p = tmp_path; *p; p++) if (*p == '/') *p = '\\';
++#endif
++            FILE* fp = fopen(tmp_path, "wb");
++            if (!fp) {
++                printf("[cellSaveData] file write: cannot open '%s'\n", tmp_path);
++                return CELL_SAVEDATA_ERROR_ACCESS_ERROR;
++            }
++            size_t wrote = fwrite(set->fileBuf, 1, write_size, fp);
++            int failed = wrote != write_size || fflush(fp) != 0;
++#ifdef _WIN32
++            if (!failed && _commit(_fileno(fp)) != 0) failed = 1;
++#else
++            if (!failed && fsync(fileno(fp)) != 0) failed = 1;
++#endif
++            if (fclose(fp) != 0) failed = 1;
++#ifdef _WIN32
++            if (!failed && !MoveFileExA(tmp_path, file_path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
++                failed = 1;
++#else
++            if (!failed && rename(tmp_path, file_path) != 0) failed = 1;
++            if (!failed) {                   /* the rename itself on disk */
++                int dfd = open(save_path, O_RDONLY | O_DIRECTORY);
++                if (dfd >= 0) { fsync(dfd); close(dfd); }
++            }
++#endif
++            if (failed) {
++                printf("[cellSaveData] file write: '%s' failed, the old file is kept\n", file_path);
++                remove(tmp_path);
++                return CELL_SAVEDATA_ERROR_ACCESS_ERROR;
++            }
++            if (set->fileType == CELL_SAVEDATA_FILETYPE_SECUREFILE)
++                pfd_add(save_path, name);
++            return (s32)wrote;
++        }
+         const char* mode;
+         if (set->fileOperation == CELL_SAVEDATA_FILEOP_WRITE && set->fileOffset == 0) {
+             mode = "wb";
+@@ -721,8 +784,8 @@ static s32 process_file_op(const char* save_path, CellSaveDataFileSet* set)
          size_t wrote = fwrite(set->fileBuf, 1, write_size, fp);
          int failed = wrote != write_size;
          if (fclose(fp) != 0) failed = 1;
@@ -5173,7 +5253,7 @@ index 79ea8ca..4a8d430 100644
          return failed ? CELL_SAVEDATA_ERROR_ACCESS_ERROR : (s32)wrote;
      }
  
-@@ -1080,6 +1097,18 @@ static void savedata_reject_log(const char* fn, const char* why, int rc)
+@@ -1080,6 +1143,18 @@ static void savedata_reject_log(const char* fn, const char* why, int rc)
  #define SAVEDATA_REJECT(rc, why) \
      do { savedata_reject_log(__func__, (why), (rc)); return (rc); } while (0)
  
@@ -5192,7 +5272,7 @@ index 79ea8ca..4a8d430 100644
  static s32 savedata_fixed(int is_save, CellSaveDataSetList* setList,
                           CellSaveDataSetBuf* setBuf, CellSaveDataFixedCallback funcFixed,
                           CellSaveDataStatCallback funcStat, CellSaveDataFileCallback funcFile,
-@@ -1095,7 +1124,14 @@ static s32 savedata_fixed(int is_save, CellSaveDataSetList* setList,
+@@ -1095,7 +1170,14 @@ static s32 savedata_fixed(int is_save, CellSaveDataSetList* setList,
      CellSaveDataDirList* dirs = dir_max ? calloc(dir_max, sizeof(*dirs)) : NULL;
      if (dir_max && !dirs) return CELL_SAVEDATA_ERROR_INTERNAL;
      u32 prefix = vm_read32((u32)(uintptr_t)setList + 8);
@@ -5208,7 +5288,7 @@ index 79ea8ca..4a8d430 100644
      u32 listed = count < dir_max ? count : dir_max;
      scratch_reset();
      u32 cb = scratch_alloc(SAVEDATA_CBRESULT_SIZE);
-@@ -1183,8 +1219,32 @@ s32 cellSaveDataListAutoLoad(u32 version, u32 errDialog,
+@@ -1183,8 +1265,32 @@ s32 cellSaveDataListAutoLoad(u32 version, u32 errDialog,
  {
      (void)container;
      if (errDialog > 2) return CELL_SAVEDATA_ERROR_PARAM;
@@ -5244,7 +5324,7 @@ index 79ea8ca..4a8d430 100644
  
  s32 cellSaveDataAutoSave2(u32 version, const char* dirName,
 diff --git a/libs/system/cellSysutil.c b/libs/system/cellSysutil.c
-index 252c3e8..4825faf 100644
+index 252c3e8c..4825fafb 100644
 --- a/libs/system/cellSysutil.c
 +++ b/libs/system/cellSysutil.c
 @@ -10,6 +10,11 @@
@@ -5323,7 +5403,7 @@ index 252c3e8..4825faf 100644
          for (i = 0; s[i] && i < bufsize - 1; i++) vm_write8(buf_ea + i, (uint8_t)s[i]);
          vm_write8(buf_ea + i, 0);
 diff --git a/libs/system/sysPrxForUser.c b/libs/system/sysPrxForUser.c
-index f6e4e31..4d5e490 100644
+index f6e4e31f..4d5e4907 100644
 --- a/libs/system/sysPrxForUser.c
 +++ b/libs/system/sysPrxForUser.c
 @@ -24,6 +24,7 @@
@@ -5455,7 +5535,7 @@ index f6e4e31..4d5e490 100644
      } else {
          u8* p = (u8*)buf;
 diff --git a/libs/system/sysPrxForUser.h b/libs/system/sysPrxForUser.h
-index 30290c7..4115542 100644
+index 30290c73..41155425 100644
 --- a/libs/system/sysPrxForUser.h
 +++ b/libs/system/sysPrxForUser.h
 @@ -97,11 +97,8 @@ s32 sys_process_is_spu_lock_line_reservation_address(u32 addr, u64 flags);
@@ -5471,7 +5551,7 @@ index 30290c7..4115542 100644
  s32 _sys_strncpy(char* dst, const char* src, u32 size);
  s32 _sys_strcat(char* dst, const char* src);
 diff --git a/libs/system/tests/test_dialog_callbacks.c b/libs/system/tests/test_dialog_callbacks.c
-index 1cb09ad..f473cc3 100644
+index 1cb09add..f473cc3b 100644
 --- a/libs/system/tests/test_dialog_callbacks.c
 +++ b/libs/system/tests/test_dialog_callbacks.c
 @@ -13,6 +13,7 @@ int spu_coh_is_reserved(uint32_t a) { (void)a; return 0; }
@@ -5483,7 +5563,7 @@ index 1cb09ad..f473cc3 100644
  static unsigned calls;
  static int waiting;
 diff --git a/libs/video/cellGcmSys.c b/libs/video/cellGcmSys.c
-index cdb0464..a4e0f1e 100644
+index cdb04646..a4e0f1e0 100644
 --- a/libs/video/cellGcmSys.c
 +++ b/libs/video/cellGcmSys.c
 @@ -199,7 +199,7 @@ static void ydkj_restore_handler_opd(u32 opd, u32 code) {
@@ -6619,7 +6699,7 @@ index cdb0464..a4e0f1e 100644
  }
  
 diff --git a/libs/video/cellResc.c b/libs/video/cellResc.c
-index f039abf..828ecf4 100644
+index f039abfc..828ecf46 100644
 --- a/libs/video/cellResc.c
 +++ b/libs/video/cellResc.c
 @@ -204,7 +204,7 @@ s32 cellRescSetConvertAndFlip(s32 index)
@@ -6633,7 +6713,7 @@ index f039abf..828ecf4 100644
  
 diff --git a/libs/video/rsx_be_thread.c b/libs/video/rsx_be_thread.c
 new file mode 100644
-index 0000000..36079d3
+index 00000000..36079d3d
 --- /dev/null
 +++ b/libs/video/rsx_be_thread.c
 @@ -0,0 +1,1284 @@
@@ -7923,7 +8003,7 @@ index 0000000..36079d3
 +#endif
 diff --git a/libs/video/rsx_be_thread.h b/libs/video/rsx_be_thread.h
 new file mode 100644
-index 0000000..7beee5b
+index 00000000..7beee5b0
 --- /dev/null
 +++ b/libs/video/rsx_be_thread.h
 @@ -0,0 +1,27 @@
@@ -7955,7 +8035,7 @@ index 0000000..7beee5b
 +
 +#endif
 diff --git a/libs/video/rsx_commands.c b/libs/video/rsx_commands.c
-index d8506de..789120b 100644
+index d8506de1..789120b8 100644
 --- a/libs/video/rsx_commands.c
 +++ b/libs/video/rsx_commands.c
 @@ -152,7 +152,7 @@ static int process_surface_method(rsx_state* state, u32 method, u32 data)
@@ -8076,7 +8156,7 @@ index d8506de..789120b 100644
          u32 header = buf[pos++];
          u32 type = (header >> 29) & 0x7;
 diff --git a/libs/video/rsx_d3d12_backend.c b/libs/video/rsx_d3d12_backend.c
-index 68929ed..edc7512 100644
+index 68929ed2..edc75127 100644
 --- a/libs/video/rsx_d3d12_backend.c
 +++ b/libs/video/rsx_d3d12_backend.c
 @@ -445,7 +445,7 @@ static void subvp_capture(u32 fi)
@@ -8403,7 +8483,7 @@ index 68929ed..edc7512 100644
               * (IO-mapped) -- and count nonzero bytes over the whole plane for each.
               * If the plane the game declares (loc bits fmt&3) is zero but the OTHER
 diff --git a/libs/video/rsx_dispatch.c b/libs/video/rsx_dispatch.c
-index d105230..373cf6f 100644
+index d105230b..373cf6f9 100644
 --- a/libs/video/rsx_dispatch.c
 +++ b/libs/video/rsx_dispatch.c
 @@ -1,3 +1,5 @@
@@ -8729,7 +8809,7 @@ index d105230..373cf6f 100644
              rsx->sink.draw_index_array(rsx->sink.user, rsx,
                                         arg & 0xFFFFFF, (arg >> 24) + 1);
 diff --git a/libs/video/rsx_dispatch.h b/libs/video/rsx_dispatch.h
-index dab4380..cf36f46 100644
+index dab43803..cf36f467 100644
 --- a/libs/video/rsx_dispatch.h
 +++ b/libs/video/rsx_dispatch.h
 @@ -84,6 +84,7 @@ extern "C" {
@@ -8789,7 +8869,7 @@ index dab4380..cf36f46 100644
  /* ---- decoded state getters -------------------------------------------- */
  
 diff --git a/libs/video/rsx_draw_engine.c b/libs/video/rsx_draw_engine.c
-index 5c50e4a..7fac4e1 100644
+index 5c50e4a9..b80efa6d 100644
 --- a/libs/video/rsx_draw_engine.c
 +++ b/libs/video/rsx_draw_engine.c
 @@ -1,3 +1,9 @@
@@ -11535,7 +11615,7 @@ index 5c50e4a..7fac4e1 100644
  static void sink_draw_index(void* user, const rsx_dispatch* r, u32 first, u32 count)
  {
      (void)user; (void)r;
-@@ -1278,56 +3267,978 @@ static void sink_draw_index(void* user, const rsx_dispatch* r, u32 first, u32 co
+@@ -1278,56 +3267,995 @@ static void sink_draw_index(void* user, const rsx_dispatch* r, u32 first, u32 co
   * render-to-texture read back through a texture unit), a unit naming a
   * tracked zeta in DEPTH24_D8 samples its snapshot, and everything else is a
   * guest upload (rsx_live_draw.c:5986-6062). */
@@ -12248,9 +12328,28 @@ index 5c50e4a..7fac4e1 100644
 +    return on;
 +}
 +
++/* Each colour target's address as one key (0: empty slot), packed so a bind
++ * that may sample a target compares 64 words instead of walking the 80-byte
++ * slots. Rebuilt with the bloom bits, the only place a slot changes. */
++_Static_assert(ENG_MAX_SURFACES <= 64, "eng_surfaces_at returns the slots as 64 bits");
++static u64 s_skey[ENG_MAX_SURFACES];
++static inline u64 eng_skey(u32 location, u32 offset)
++{
++    return 1ull << 63 | (u64)location << 32 | offset;
++}
++/* The slots whose target sits at (location, offset), as bits. */
++static inline u64 eng_surfaces_at(u32 location, u32 offset)
++{
++    const u64 k = eng_skey(location, offset);
++    u64 m = 0;
++    for (u32 i = 0; i < g.n_surfaces; i++) m |= (u64)(s_skey[i] == k) << i;
++    return m;
++}
 +static void eng_tbloom_rebuild(void)
 +{
 +    memset(s_tbloom, 0, sizeof s_tbloom);
++    for (u32 i = 0; i < g.n_surfaces; i++)
++        s_skey[i] = g.surfaces[i].handle ? eng_skey(g.surfaces[i].location, g.surfaces[i].offset) : 0;
 +    for (u32 i = 0; i < g.n_surfaces; i++) if (g.surfaces[i].handle) {
 +        const u32 b = eng_tbloom_bit(g.surfaces[i].location, g.surfaces[i].offset);
 +        s_tbloom[b >> 6] |= 1ull << (b & 63);
@@ -12311,6 +12410,12 @@ index 5c50e4a..7fac4e1 100644
 -
 -        int sampled = -1;
 -        for (u32 i = 0; i < g.n_surfaces; i++) {
+-            if (!g.surfaces[i].handle || g.surfaces[i].location != t.location ||
+-                g.surfaces[i].offset != t.offset)
+-                continue;
+-            /* Not one this draw writes: reading a target a pass is writing
+-             * is undefined on every API, and an MRT set writes more than
+-             * one of them. */
 +        if (s_nao.runs && eng_nao_bind(&t, &textures[u])) continue;
 +        if (s_nlt.d.mode && eng_nlt_bind(&t, &textures[u])) continue;
 +        mm->handle = 0;
@@ -12321,13 +12426,8 @@ index 5c50e4a..7fac4e1 100644
 +         * this draw writes -- reading a target a pass is writing is undefined
 +         * on every API, and an MRT set writes more than one of them. */
 +        int sampled = -1, own_hit = 0, own_slot = -1;
-+        for (u32 i = 0; maybe_target && i < g.n_surfaces; i++) {
-             if (!g.surfaces[i].handle || g.surfaces[i].location != t.location ||
-                 g.surfaces[i].offset != t.offset)
-                 continue;
--            /* Not one this draw writes: reading a target a pass is writing
--             * is undefined on every API, and an MRT set writes more than
--             * one of them. */
++        for (u64 at = maybe_target ? eng_surfaces_at(t.location, t.offset) : 0; at; at &= at - 1) {
++            const u32 i = (u32)__builtin_ctzll(at);
              int own = 0;
              for (u32 k = 0; k < n_targets; k++) if (target_slots[k] == i) own = 1;
 -            if (own) break;
@@ -12411,10 +12511,13 @@ index 5c50e4a..7fac4e1 100644
 +                            : 0;
 +                        textures[u] = view ? view : snap;
 +                    }
-+                    break;
-+                }
-+            if (textures[u]) continue;
-+        }
+                     break;
+                 }
+             if (textures[u]) continue;
+         }
+-        textures[u] = eng_texture_slot(t.location, t.offset, t.format,
+-                                       t.width, t.height, t.mipmaps, t.pitch,
+-                                       (int)t.cubemap, t.remap & 0xFFFFu);
 +        /* A colour format over a depth buffer reads the depth bytes (fog,
 +         * depth-of-field, SSAO); the copy reflects depth before this draw, so
 +         * the current zeta qualifies too. */
@@ -12435,13 +12538,10 @@ index 5c50e4a..7fac4e1 100644
 +                            : 0;
 +                        textures[u] = view ? view : snap;
 +                    }
-                     break;
-                 }
-             if (textures[u]) continue;
-         }
--        textures[u] = eng_texture_slot(t.location, t.offset, t.format,
--                                       t.width, t.height, t.mipmaps, t.pitch,
--                                       (int)t.cubemap, t.remap & 0xFFFFu);
++                    break;
++                }
++            if (textures[u]) continue;
++        }
 +        { const u64 tx0 = eng_ds_enabled() ? eng_ds_now() : 0;
 +          textures[u] = eng_texture_slot(t.location, t.offset, t.format,
 +                                         t.width, t.height, t.mipmaps, t.pitch,
@@ -12532,7 +12632,7 @@ index 5c50e4a..7fac4e1 100644
      return mask;
  }
  
-@@ -1350,12 +4261,43 @@ static u32 sink_bind_vertex_textures(
+@@ -1350,12 +4278,43 @@ static u32 sink_bind_vertex_textures(
      return bound;
  }
  
@@ -12577,7 +12677,7 @@ index 5c50e4a..7fac4e1 100644
      /* Everything that becomes triangles -- lists, strips, fans, quads, quad
       * strips and polygons -- is REBUILT into one triangle list through an
       * index buffer. A host strip topology cannot express a restart cut, which
-@@ -1368,33 +4310,142 @@ static void sink_end(void* user, const rsx_dispatch* r)
+@@ -1368,33 +4327,142 @@ static void sink_end(void* user, const rsx_dispatch* r)
      int scratch = 0;
      const int rebuild = eng_topology_rebuild(prim, 0, &scratch) != 0;
      if (!rebuild) {
@@ -12680,7 +12780,8 @@ index 5c50e4a..7fac4e1 100644
 +        dc_fetch(&layout, rebuild);
 +        if (!s_geo_arm.on) s_geo_arm.ok = 0;
 +        s_geo_arm.on = 0;
-+    }
+     }
+-    if (!n_draw) return;
 +    const u64 ds_t0 = eng_ds_enabled() ? eng_ds_now() : 0;
 +    u64 ds_m = ds_t0;   /* stage marks within the rest of sink_end */
 +#define DS_MARK(field) do { if (ds_t0) { const u64 _t = eng_ds_now(); ds.field += _t - ds_m; ds_m = _t; } } while (0)
@@ -12720,8 +12821,7 @@ index 5c50e4a..7fac4e1 100644
 +                eng_geo_store(geo, geo_key, &layout, indexed, n_draw);
 +            }
 +        }
-     }
--    if (!n_draw) return;
++    }
 +    if (!n_draw) { eng_drop("n_draw0", prim); return; }
  
      rsx_be_render_state rs;
@@ -12734,7 +12834,7 @@ index 5c50e4a..7fac4e1 100644
      const u32 target = targets[0];
  
      rsx_dsp_surface sf;
-@@ -1403,6 +4454,14 @@ static void sink_end(void* user, const rsx_dispatch* r)
+@@ -1403,6 +4471,14 @@ static void sink_end(void* user, const rsx_dispatch* r)
      rsx_dsp_get_viewport(&g.rsx, &vp);
      const u32 zslot = eng_zdepth_get(sf.zeta_location, sf.zeta_offset,
                                       sf.clip_w, sf.clip_h);
@@ -12749,7 +12849,7 @@ index 5c50e4a..7fac4e1 100644
  
      /* Textures before any pipeline or target binding: a cache refresh can
       * replace a resource, and the backend is free to submit while doing it. */
-@@ -1414,6 +4473,7 @@ static void sink_end(void* user, const rsx_dispatch* r)
+@@ -1414,6 +4490,7 @@ static void sink_end(void* user, const rsx_dispatch* r)
      memset(samplers, 0, sizeof samplers);
      memset(vtextures, 0, sizeof vtextures);
      memset(vsamplers, 0, sizeof vsamplers);
@@ -12757,7 +12857,7 @@ index 5c50e4a..7fac4e1 100644
      const u32 tex_mask = sink_bind_textures(targets, n_targets, zslot,
                                              textures, samplers);
      const u32 vtex_mask = sink_bind_vertex_textures(eng_vtex_mask(), vtextures,
-@@ -1423,19 +4483,43 @@ static void sink_end(void* user, const rsx_dispatch* r)
+@@ -1423,19 +4500,43 @@ static void sink_end(void* user, const rsx_dispatch* r)
       * is dropped, as the reference engine drops it. Substituting the built-in
       * program would draw the geometry in the wrong colours, which is harder to
       * see than a missing object and hides the translation failure. */
@@ -12811,7 +12911,7 @@ index 5c50e4a..7fac4e1 100644
  
      /* The transform constant block, then the viewport epilogue the vertex
       * program's tail multiplies by: RSX window coordinates mapped into the
-@@ -1444,6 +4528,9 @@ static void sink_end(void* user, const rsx_dispatch* r)
+@@ -1444,6 +4545,9 @@ static void sink_end(void* user, const rsx_dispatch* r)
      const float H = sf.clip_h ? (float)sf.clip_h : (float)g.height;
      float xf[8] = { 1, 1, 1, 0, 0, 0, 0, 0 };
      if (vp.scale[0] != 0.0f || vp.translate[0] != 0.0f) {
@@ -12821,7 +12921,7 @@ index 5c50e4a..7fac4e1 100644
          xf[0] = vp.scale[0] / (W * 0.5f);
          xf[1] = -(vp.scale[1] / (H * 0.5f));
          xf[2] = vp.scale[2];
-@@ -1451,25 +4538,62 @@ static void sink_end(void* user, const rsx_dispatch* r)
+@@ -1451,25 +4555,62 @@ static void sink_end(void* user, const rsx_dispatch* r)
          xf[5] = -((vp.translate[1] - H * 0.5f) / (H * 0.5f));
          xf[6] = vp.translate[2];
      }
@@ -12892,7 +12992,7 @@ index 5c50e4a..7fac4e1 100644
  
      /* The depth attachment is cleared the first time it is bound, so a title
       * that never clears its shadow zeta still tests against something. */
-@@ -1486,8 +4610,33 @@ static void sink_end(void* user, const rsx_dispatch* r)
+@@ -1486,8 +4627,33 @@ static void sink_end(void* user, const rsx_dispatch* r)
      for (u32 i = 0; i < n_targets; i++) handles[i] = g.surfaces[targets[i]].handle;
      g.be->bind_targets(g.be->user, handles, n_targets, depth_handle);
      g.be->bind_pipeline(g.be->user, pipeline);
@@ -12927,7 +13027,7 @@ index 5c50e4a..7fac4e1 100644
      g.be->bind_textures(g.be->user, textures, samplers, tex_mask);
      g.be->bind_vertex_textures(g.be->user, vtextures, vsamplers, vtex_mask);
      g.be->set_viewport(g.be->user, 0.0f, 0.0f, W, H);
-@@ -1515,19 +4664,98 @@ static void sink_end(void* user, const rsx_dispatch* r)
+@@ -1515,19 +4681,98 @@ static void sink_end(void* user, const rsx_dispatch* r)
          g.be->set_scissor(g.be->user, sx, sy, sw, sh);
      }
      /* Dynamic, and deliberately outside the pipeline key. */
@@ -13029,7 +13129,7 @@ index 5c50e4a..7fac4e1 100644
  }
  
  static void sink_clear(void* user, const rsx_dispatch* r, u32 mask)
-@@ -1538,6 +4766,9 @@ static void sink_clear(void* user, const rsx_dispatch* r, u32 mask)
+@@ -1538,6 +4783,9 @@ static void sink_clear(void* user, const rsx_dispatch* r, u32 mask)
      const u32 n_targets = eng_current_target_set(targets);
      if (!n_targets) return;
  
@@ -13039,7 +13139,7 @@ index 5c50e4a..7fac4e1 100644
      if (mask & (RSX_CLEAR_COLOR_R | RSX_CLEAR_COLOR_G |
                  RSX_CLEAR_COLOR_B | RSX_CLEAR_COLOR_A)) {
          const u32 c = rsx_dsp_clear_color(&g.rsx);
-@@ -1559,22 +4790,28 @@ static void sink_clear(void* user, const rsx_dispatch* r, u32 mask)
+@@ -1559,22 +4807,28 @@ static void sink_clear(void* user, const rsx_dispatch* r, u32 mask)
          const u32 zslot = eng_zdepth_get(sf.zeta_location, sf.zeta_offset,
                                           sf.clip_w, sf.clip_h);
          if (zslot == ENG_INVALID) return;
@@ -13070,7 +13170,7 @@ index 5c50e4a..7fac4e1 100644
          }
      }
  }
-@@ -1587,14 +4824,198 @@ static u32 eng_present_surface(u32 buffer_id)
+@@ -1587,14 +4841,198 @@ static u32 eng_present_surface(u32 buffer_id)
  {
      if (buffer_id < 8 && g.display_buffers[buffer_id].valid) {
          const eng_display_buffer* d = &g.display_buffers[buffer_id];
@@ -13271,7 +13371,7 @@ index 5c50e4a..7fac4e1 100644
  static void eng_present(u32 buffer_id)
  {
      if (!g.ready) return;
-@@ -1610,8 +5031,195 @@ static void eng_present(u32 buffer_id)
+@@ -1610,8 +5048,195 @@ static void eng_present(u32 buffer_id)
                      g.surfaces[i].w, g.surfaces[i].h, g.surfaces[i].handle);
      }
      g.last_present_surface = target;
@@ -13468,7 +13568,7 @@ index 5c50e4a..7fac4e1 100644
      g.last_guest_draws = g.guest_draws;
      g.guest_draws = 0;
  }
-@@ -1627,7 +5235,7 @@ static void sink_flip(void* user, const rsx_dispatch* r, u32 arg)
+@@ -1627,7 +5252,7 @@ static void sink_flip(void* user, const rsx_dispatch* r, u32 arg)
  
  void rsx_draw_engine_set_backend(const rsx_draw_backend* backend)
  {
@@ -13477,7 +13577,7 @@ index 5c50e4a..7fac4e1 100644
  }
  
  void rsx_draw_engine_set_default(int on)
-@@ -1659,7 +5267,7 @@ int rsx_draw_engine_init(u32 width, u32 height)
+@@ -1659,7 +5284,7 @@ int rsx_draw_engine_init(u32 width, u32 height)
      if (!g.be) return -1;
      g.width  = width  ? width  : 1280;
      g.height = height ? height : 720;
@@ -13486,7 +13586,7 @@ index 5c50e4a..7fac4e1 100644
      if (!g.vp_cb) return -1;
      if (g.be->init && g.be->init(g.be->user, g.width, g.height) != 0) {
          free(g.vp_cb); g.vp_cb = NULL;
-@@ -1694,7 +5302,24 @@ void rsx_draw_engine_shutdown(void)
+@@ -1694,7 +5319,24 @@ void rsx_draw_engine_shutdown(void)
          if (g.surfaces[i].handle) g.be->color_target_release(g.be->user, g.surfaces[i].handle);
      for (u32 i = 0; i < g.n_zdepths; i++)
          if (g.zdepths[i].handle) g.be->depth_target_release(g.be->user, g.zdepths[i].handle);
@@ -13511,7 +13611,7 @@ index 5c50e4a..7fac4e1 100644
  
      rsx_draw_engine_set_guest_memory(NULL, NULL);
      free(dc.refs); free(dc.cuts); free(dc.verts);
-@@ -1704,6 +5329,16 @@ void rsx_draw_engine_shutdown(void)
+@@ -1704,6 +5346,16 @@ void rsx_draw_engine_shutdown(void)
      const rsx_draw_backend* be = g.be;
      memset(&g, 0, sizeof g);
      g.be = be;
@@ -13528,7 +13628,7 @@ index 5c50e4a..7fac4e1 100644
  }
  
  void rsx_draw_engine_method(u32 method, u32 arg)
-@@ -1717,6 +5352,272 @@ void rsx_draw_engine_method(u32 method, u32 arg)
+@@ -1717,6 +5369,272 @@ void rsx_draw_engine_method(u32 method, u32 arg)
       * preserve them with the wider mask. */
      u32 m = (method >= 0xE000u) ? (method & 0xFFFCu) : (method & 0x1FFCu);
      rsx_dispatch_method(&g.rsx, m, arg);
@@ -13801,7 +13901,7 @@ index 5c50e4a..7fac4e1 100644
  }
  
  void rsx_draw_engine_set_display_buffer(u32 buffer_id, u32 location, u32 offset,
-@@ -1746,13 +5647,17 @@ void rsx_draw_engine_present(void)
+@@ -1746,13 +5664,17 @@ void rsx_draw_engine_present(void)
       * re-present a double-buffered title's OTHER scanout. Presenting twice is
       * harmless either way -- the engine never clears the surface, so a second
       * present just blits the same image again. */
@@ -13820,7 +13920,7 @@ index 5c50e4a..7fac4e1 100644
  
  u32 rsx_draw_engine_guest_draws(void)
 diff --git a/libs/video/rsx_draw_engine.h b/libs/video/rsx_draw_engine.h
-index fa8b57d..2fe34d1 100644
+index fa8b57da..2fe34d10 100644
 --- a/libs/video/rsx_draw_engine.h
 +++ b/libs/video/rsx_draw_engine.h
 @@ -65,7 +65,9 @@ typedef enum {
@@ -14153,7 +14253,7 @@ index fa8b57d..2fe34d1 100644
  /*
   * These are the neutral parts the unit tests in libs/video/tests exercise
 diff --git a/libs/video/rsx_fp_decompiler.c b/libs/video/rsx_fp_decompiler.c
-index 545670f..45b967b 100644
+index 545670f2..45b967b2 100644
 --- a/libs/video/rsx_fp_decompiler.c
 +++ b/libs/video/rsx_fp_decompiler.c
 @@ -27,6 +27,7 @@
@@ -14842,7 +14942,7 @@ index 545670f..45b967b 100644
          for (int _q = 0; _q < n; _q++)
              fprintf(stderr, "   k[%2d] = (%g %g %g %g)%c", _q, out[_q*4+0],
 diff --git a/libs/video/rsx_fp_decompiler.h b/libs/video/rsx_fp_decompiler.h
-index cbec250..4dd9c7a 100644
+index cbec250a..4dd9c7aa 100644
 --- a/libs/video/rsx_fp_decompiler.h
 +++ b/libs/video/rsx_fp_decompiler.h
 @@ -108,6 +108,54 @@ float rsx_fp_alpha_ref(u32 raw, u32 surface_color_format);
@@ -14926,7 +15026,7 @@ index cbec250..4dd9c7a 100644
  }
 diff --git a/libs/video/rsx_hitch.h b/libs/video/rsx_hitch.h
 new file mode 100644
-index 0000000..f28b048
+index 00000000..f28b0487
 --- /dev/null
 +++ b/libs/video/rsx_hitch.h
 @@ -0,0 +1,119 @@
@@ -15050,7 +15150,7 @@ index 0000000..f28b048
 +
 +#endif
 diff --git a/libs/video/rsx_live_draw.c b/libs/video/rsx_live_draw.c
-index ef661c0..68fbaf3 100644
+index ef661c0e..68fbaf3c 100644
 --- a/libs/video/rsx_live_draw.c
 +++ b/libs/video/rsx_live_draw.c
 @@ -87,9 +87,9 @@ static volatile long g_ld_ps1_vram_ready = 0;
@@ -15236,7 +15336,7 @@ index ef661c0..68fbaf3 100644
                      "[live-draw] flip %u has no registered/rendered scanout; "
                      "falling back to current surface %u\n",
 diff --git a/libs/video/rsx_metal_backend.m b/libs/video/rsx_metal_backend.m
-index d04b34e..93bd533 100644
+index d04b34e3..93bd5338 100644
 --- a/libs/video/rsx_metal_backend.m
 +++ b/libs/video/rsx_metal_backend.m
 @@ -52,6 +52,7 @@
@@ -16213,7 +16313,7 @@ index d04b34e..93bd533 100644
      }
  #endif
 diff --git a/libs/video/rsx_null_backend.c b/libs/video/rsx_null_backend.c
-index 32e8a95..cbd28c2 100644
+index 32e8a959..cbd28c2e 100644
 --- a/libs/video/rsx_null_backend.c
 +++ b/libs/video/rsx_null_backend.c
 @@ -382,6 +382,13 @@ typedef struct {
@@ -16270,7 +16370,7 @@ index 32e8a95..cbd28c2 100644
  
  /* Headless has no event queue and no window to close. */
 diff --git a/libs/video/rsx_shader_msl.h b/libs/video/rsx_shader_msl.h
-index 50450b1..dd67e0d 100644
+index 50450b11..dd67e0df 100644
 --- a/libs/video/rsx_shader_msl.h
 +++ b/libs/video/rsx_shader_msl.h
 @@ -35,6 +35,8 @@ extern "C" {
@@ -16283,7 +16383,7 @@ index 50450b1..dd67e0d 100644
  /* 1 when the translator was built with glslang and spirv-cross, 0 when the
   * stub is in. A backend asks this once and picks its shader path. */
 diff --git a/libs/video/rsx_shader_spirv.cpp b/libs/video/rsx_shader_spirv.cpp
-index f9725b8..b802b33 100644
+index f9725b84..b802b332 100644
 --- a/libs/video/rsx_shader_spirv.cpp
 +++ b/libs/video/rsx_shader_spirv.cpp
 @@ -39,17 +39,20 @@ void put_log(char* log, u32 log_size, const char* what, const char* detail)
@@ -16344,7 +16444,7 @@ index f9725b8..b802b33 100644
  extern "C" int rsx_hlsl_to_spirv(const char* hlsl, int stage,
                                   u32* words, u32 max_words, u32* out_words,
 diff --git a/libs/video/rsx_shader_spirv.h b/libs/video/rsx_shader_spirv.h
-index f78f126..092716b 100644
+index f78f1261..092716bb 100644
 --- a/libs/video/rsx_shader_spirv.h
 +++ b/libs/video/rsx_shader_spirv.h
 @@ -39,16 +39,28 @@ extern "C" {
@@ -16378,7 +16478,7 @@ index f78f126..092716b 100644
   *   out_words : receives the word count.
   *   log       : receives a diagnostic on failure (may be NULL).
 diff --git a/libs/video/rsx_texture_layout.c b/libs/video/rsx_texture_layout.c
-index 039ebb2..a6c15a5 100644
+index 039ebb28..a6c15a57 100644
 --- a/libs/video/rsx_texture_layout.c
 +++ b/libs/video/rsx_texture_layout.c
 @@ -146,6 +146,11 @@ u32 rsx_texture_cube_face_stride(u32 rsx_fmt, u32 w, u32 h, u32 levels,
@@ -16543,7 +16643,7 @@ index 039ebb2..a6c15a5 100644
 +                                : map[ch[i]];
  }
 diff --git a/libs/video/rsx_texture_layout.h b/libs/video/rsx_texture_layout.h
-index ce99e68..9f43916 100644
+index ce99e681..9f43916f 100644
 --- a/libs/video/rsx_texture_layout.h
 +++ b/libs/video/rsx_texture_layout.h
 @@ -206,6 +206,17 @@ void rsx_texture_decode(void* dst, u32 dst_pitch,
@@ -16588,10 +16688,10 @@ index ce99e68..9f43916 100644
  #endif
 diff --git a/libs/video/rsx_ui.cpp b/libs/video/rsx_ui.cpp
 new file mode 100644
-index 0000000..cd020c9
+index 00000000..3af7eda3
 --- /dev/null
 +++ b/libs/video/rsx_ui.cpp
-@@ -0,0 +1,621 @@
+@@ -0,0 +1,623 @@
 +/*
 + * ps3recomp - a user interface over the game's window (Dear ImGui, Vulkan).
 + * See rsx_ui.h for the threads, rsx_ui_vk.h for the backend's side.
@@ -16974,7 +17074,9 @@ index 0000000..cd020c9
 +        if (sym != SDLK_F1) ImGui_ImplSDL2_ProcessEvent(e);
 +        return 1;
 +    }
-+    if (e->type == SDL_KEYDOWN && !e->key.repeat && sym == SDLK_F1) {
++    /* Escape opens and closes the menu like F1: it used to quit the game on
++     * the spot, unsaved progress and all. Quitting is in the menu. */
++    if (e->type == SDL_KEYDOWN && !e->key.repeat && (sym == SDLK_F1 || sym == SDLK_ESCAPE)) {
 +        rsx_ui_set_menu_open(!U.menu);
 +        return 1;
 +    }
@@ -17215,7 +17317,7 @@ index 0000000..cd020c9
 +} /* extern "C" */
 diff --git a/libs/video/rsx_ui.h b/libs/video/rsx_ui.h
 new file mode 100644
-index 0000000..8cea11c
+index 00000000..8cea11ca
 --- /dev/null
 +++ b/libs/video/rsx_ui.h
 @@ -0,0 +1,75 @@
@@ -17296,7 +17398,7 @@ index 0000000..8cea11c
 +#endif
 diff --git a/libs/video/rsx_ui_vk.h b/libs/video/rsx_ui_vk.h
 new file mode 100644
-index 0000000..0b7655f
+index 00000000..0b7655f0
 --- /dev/null
 +++ b/libs/video/rsx_ui_vk.h
 @@ -0,0 +1,48 @@
@@ -17349,7 +17451,7 @@ index 0000000..0b7655f
 +
 +#endif
 diff --git a/libs/video/rsx_vertex_compact.c b/libs/video/rsx_vertex_compact.c
-index 4334f16..62feff1 100644
+index 4334f169..62feff1c 100644
 --- a/libs/video/rsx_vertex_compact.c
 +++ b/libs/video/rsx_vertex_compact.c
 @@ -180,6 +180,10 @@ void rsx_vertex_fetch_plan_prepare(
@@ -17838,7 +17940,7 @@ index 4334f16..62feff1 100644
  }
  
 diff --git a/libs/video/rsx_vertex_compact.h b/libs/video/rsx_vertex_compact.h
-index ad21361..e8b119a 100644
+index ad213615..e8b119a0 100644
 --- a/libs/video/rsx_vertex_compact.h
 +++ b/libs/video/rsx_vertex_compact.h
 @@ -44,6 +44,13 @@ typedef struct rsx_vertex_remap {
@@ -17899,7 +18001,7 @@ index ad21361..e8b119a 100644
  
  /* Select the live renderer's triangle topology path.  A remapped triangle
 diff --git a/libs/video/rsx_vp_decompiler.c b/libs/video/rsx_vp_decompiler.c
-index edd01d6..3839a3c 100644
+index edd01d68..3839a3cd 100644
 --- a/libs/video/rsx_vp_decompiler.c
 +++ b/libs/video/rsx_vp_decompiler.c
 @@ -30,6 +30,7 @@
@@ -17996,7 +18098,7 @@ index edd01d6..3839a3c 100644
          "}\n");
  
 diff --git a/libs/video/rsx_vp_decompiler.h b/libs/video/rsx_vp_decompiler.h
-index ecc53fc..5752611 100644
+index ecc53fce..5752611d 100644
 --- a/libs/video/rsx_vp_decompiler.h
 +++ b/libs/video/rsx_vp_decompiler.h
 @@ -52,6 +52,20 @@ int rsx_vp_analyze_inputs(const u8* ucode, u32 max_bytes,
@@ -18021,7 +18123,7 @@ index ecc53fc..5752611 100644
   * program start). Branch targets are absolute slots; this makes them relative
   * to the ucode pointer handed in. Defaults to 0. */
 diff --git a/libs/video/rsx_vulkan_backend.c b/libs/video/rsx_vulkan_backend.c
-index e2687b7..4604dec 100644
+index e2687b79..12e750e3 100644
 --- a/libs/video/rsx_vulkan_backend.c
 +++ b/libs/video/rsx_vulkan_backend.c
 @@ -38,18 +38,24 @@
@@ -18339,7 +18441,7 @@ index e2687b7..4604dec 100644
  /* Host writes to non-coherent memory need a flush; there is no
   * vkFlushMappedMemoryRanges loaded, so writes only ever go to coherent
   * buffers (every desktop/L4T driver exposes one). Reads invalidate. */
-@@ -470,26 +616,959 @@ static void vk_invalidate(vk_buffer* b)
+@@ -470,26 +616,962 @@ static void vk_invalidate(vk_buffer* b)
  /* ---------------------------------------------------------------------------
   * One-shot command submission
   * -------------------------------------------------------------------------*/
@@ -18967,7 +19069,10 @@ index e2687b7..4604dec 100644
 +static vk_ring s_vring = { .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
 +                                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 +                           .min = 32u << 20 };
-+static vk_ring s_uring = { .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, .min = 16u << 20 };
++/* Uniforms start at the size every session grew them to (each draw writes
++ * ~8.7 KB of VS constants): growing is a flush and a wait for the GPU, four
++ * times per set in the first minutes of play. */
++static vk_ring s_uring = { .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, .min = 256u << 20 };
 +static vk_ring s_sring = { .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,   .min = 64u << 20 };
 +/* Deferred readbacks land here (readback_deferred). */
 +static vk_ring s_rring = { .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT,   .min = 1u << 20, .cached = 1 };
@@ -19032,7 +19137,7 @@ index e2687b7..4604dec 100644
 +    .vring = { .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
 +                        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 +               .min = 32u << 20 },
-+    .uring = { .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, .min = 16u << 20 },
++    .uring = { .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, .min = 256u << 20 },
 +    .sring = { .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,   .min = 64u << 20 },
 +    .rring = { .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT,   .min = 1u << 20, .cached = 1 },
 +    .dead = s_dead_store[1], .zp_need_reset = 1, .zp_rep = s_zp_reps[1], .rb = s_rb_store[1],
@@ -19303,7 +19408,7 @@ index e2687b7..4604dec 100644
  /* Order this command buffer's use of an image after everything submitted
   * before it; from UNDEFINED it is also the one-time move to GENERAL. */
  static void vk_barrier_image(VkImage img, VkImageAspectFlags aspect, VkImageLayout old_layout)
-@@ -501,7 +1580,8 @@ static void vk_barrier_image(VkImage img, VkImageAspectFlags aspect, VkImageLayo
+@@ -501,7 +1583,8 @@ static void vk_barrier_image(VkImage img, VkImageAspectFlags aspect, VkImageLayo
          .oldLayout = old_layout, .newLayout = VK_IMAGE_LAYOUT_GENERAL,
          .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
          .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
@@ -19313,7 +19418,7 @@ index e2687b7..4604dec 100644
      };
      pvkCmdPipelineBarrier(s_vk.cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
                            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, NULL, 0, NULL, 1, &b);
-@@ -715,10 +1795,30 @@ static void vk_cb_bind_texture(void* ud, u32 unit, const rsx_texture_state* t)
+@@ -715,10 +1798,30 @@ static void vk_cb_bind_texture(void* ud, u32 unit, const rsx_texture_state* t)
  /* ---------------------------------------------------------------------------
   * Render pass, framebuffer, pipelines
   * -------------------------------------------------------------------------*/
@@ -19345,7 +19450,7 @@ index e2687b7..4604dec 100644
      };
      const VkFormatFeatureFlags need = VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT |
                                        VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
-@@ -752,8 +1852,8 @@ static int vk_create_render_pass(void)
+@@ -752,8 +1855,8 @@ static int vk_create_render_pass(void)
            .initialLayout = VK_IMAGE_LAYOUT_GENERAL, .finalLayout = VK_IMAGE_LAYOUT_GENERAL },
          { .format = s_vk.depth_format, .samples = VK_SAMPLE_COUNT_1_BIT,
            .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD, .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
@@ -19356,7 +19461,7 @@ index e2687b7..4604dec 100644
            .initialLayout = VK_IMAGE_LAYOUT_GENERAL, .finalLayout = VK_IMAGE_LAYOUT_GENERAL },
      };
      VkAttachmentReference cref = { 0, VK_IMAGE_LAYOUT_GENERAL };
-@@ -897,7 +1997,7 @@ static VkPipeline vk_get_pipeline(int ztest, int zwrite, u32 cmp)
+@@ -897,7 +2000,7 @@ static VkPipeline vk_get_pipeline(int ztest, int zwrite, u32 cmp)
          .pDynamicState = &dy, .layout = s_vk.pipe_layout, .renderPass = s_vk.render_pass,
          .subpass = 0 };
      VkPipeline p = VK_NULL_HANDLE;
@@ -19365,7 +19470,7 @@ index e2687b7..4604dec 100644
      if (r != VK_SUCCESS) { VK_LOG("vkCreateGraphicsPipelines failed (%d)\n", (int)r); return VK_NULL_HANDLE; }
      s_vk.pipelines[slot] = p;
      return p;
-@@ -1016,6 +2116,8 @@ static int vk_ensure_vertex_buffer(VkDeviceSize bytes)
+@@ -1016,6 +2119,8 @@ static int vk_ensure_vertex_buffer(VkDeviceSize bytes)
  #define VK_HLSL_BYTES    (256u * 1024u)
  #define VK_SPV_WORDS     (256u * 1024u)
  #define VK_VPCONST_BYTES ((RSX_MAX_VERTEX_CONSTANTS + 2u) * 16u)
@@ -19374,7 +19479,7 @@ index e2687b7..4604dec 100644
  #define VK_GUEST_ATTRS   16u
  #define VK_GUEST_FLOATS  (VK_GUEST_ATTRS * 4u)   /* per vertex */
  
-@@ -1044,6 +2146,7 @@ static struct {
+@@ -1044,6 +2149,7 @@ static struct {
      rsx_fp_constant_block consts;
      u32                   draws, last_draws;
      u32                   warned;
@@ -19382,7 +19487,7 @@ index e2687b7..4604dec 100644
  } s_g;
  
  int rsx_vulkan_backend_guest_programs(void)
-@@ -1147,7 +2250,8 @@ static int vk_fp_slot(const rsx_state* st, const u8** uc)
+@@ -1147,7 +2253,8 @@ static int vk_fp_slot(const rsx_state* st, const u8** uc)
      u64 key = rsx_fp_structural_hash(*uc, VK_FP_MAX_BYTES, 1469598103934665603ull);
      if (!key) return -1;                       /* malformed or unterminated */
      const u32 ctrl     = st->shader_control;
@@ -19392,7 +19497,7 @@ index e2687b7..4604dec 100644
      const u32 alpha_en = (st->alpha_test_enable && st->alpha_func != 0x0207u) ? 1u : 0u;
      const u32 alpha_fn = alpha_en ? st->alpha_func : 0u;
      key = vk_fnv1a64(&ctrl_key, sizeof ctrl_key, key);
-@@ -1238,7 +2342,7 @@ static VkPipeline vk_guest_pipeline(int vs, int fs, int ztest, int zwrite, u32 c
+@@ -1238,7 +2345,7 @@ static VkPipeline vk_guest_pipeline(int vs, int fs, int ztest, int zwrite, u32 c
          .pDynamicState = &dy, .layout = s_g.pipe_layout, .renderPass = s_vk.render_pass,
          .subpass = 0 };
      VkPipeline p = VK_NULL_HANDLE;
@@ -19401,7 +19506,7 @@ index e2687b7..4604dec 100644
      if (r != VK_SUCCESS) {
          VK_LOG("guest pipeline: vkCreateGraphicsPipelines failed (%d)\n", (int)r);
          return VK_NULL_HANDLE;
-@@ -1280,6 +2384,13 @@ static int vk_guest_init(void)
+@@ -1280,6 +2387,13 @@ static int vk_guest_init(void)
      VkPhysicalDeviceProperties p;
      pvkGetPhysicalDeviceProperties(s_vk.phys, &p);
      s_g.max_ubo_range = p.limits.maxUniformBufferRange;
@@ -19415,7 +19520,7 @@ index e2687b7..4604dec 100644
      VkDeviceSize align = p.limits.minUniformBufferOffsetAlignment;
      if (align == 0) align = 256;
      s_g.ps_off = (VK_VPCONST_BYTES + align - 1u) / align * align;
-@@ -1290,22 +2401,24 @@ static int vk_guest_init(void)
+@@ -1290,22 +2404,24 @@ static int vk_guest_init(void)
      }
  
      const VkShaderStageFlags both = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -19443,7 +19548,7 @@ index e2687b7..4604dec 100644
          { VK_DESCRIPTOR_TYPE_SAMPLER, RSX_MAX_TEXTURES },
      };
      VkDescriptorPoolCreateInfo pci = { .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-@@ -1451,7 +2564,7 @@ static int vk_guest_draw(const rsx_state* st, u32 prim, u32 first, u32 count)
+@@ -1451,7 +2567,7 @@ static int vk_guest_draw(const rsx_state* st, u32 prim, u32 first, u32 count)
  
      if (vk_begin()) return 0;
      vk_barrier_image(s_vk.color.img, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_GENERAL);
@@ -19452,7 +19557,7 @@ index e2687b7..4604dec 100644
      VkRenderPassBeginInfo rbi = { .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
                                    .renderPass = s_vk.render_pass, .framebuffer = s_vk.framebuffer,
                                    .renderArea = { { 0, 0 }, { s_vk.width, s_vk.height } } };
-@@ -1496,7 +2609,7 @@ static void vk_draw(u32 prim, u32 first, u32 count)
+@@ -1496,7 +2612,7 @@ static void vk_draw(u32 prim, u32 first, u32 count)
  
      if (vk_begin()) return;
      vk_barrier_image(s_vk.color.img, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_GENERAL);
@@ -19461,7 +19566,7 @@ index e2687b7..4604dec 100644
      VkRenderPassBeginInfo rbi = { .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
                                    .renderPass = s_vk.render_pass, .framebuffer = s_vk.framebuffer,
                                    .renderArea = { { 0, 0 }, { s_vk.width, s_vk.height } } };
-@@ -1558,7 +2671,7 @@ static void vk_cb_clear(void* ud, u32 flags, u32 color, float depth, u8 stencil)
+@@ -1558,7 +2674,7 @@ static void vk_cb_clear(void* ud, u32 flags, u32 color, float depth, u8 stencil)
      if (do_depth) {
          VkClearDepthStencilValue d = { depth, 0 };
          VkImageSubresourceRange r = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 };
@@ -19470,7 +19575,7 @@ index e2687b7..4604dec 100644
          pvkCmdClearDepthStencilImage(s_vk.cmd, s_vk.depth.img, VK_IMAGE_LAYOUT_GENERAL, &d, 1, &r);
      }
      vk_submit_and_wait();
-@@ -1578,33 +2691,42 @@ static int vk_env_on(const char* name)
+@@ -1578,33 +2694,42 @@ static int vk_env_on(const char* name)
      return v && v[0] && v[0] != '0';
  }
  
@@ -19516,7 +19621,7 @@ index e2687b7..4604dec 100644
  
  static void vk_window_open(const char* title)
  {
-@@ -1615,8 +2737,14 @@ static void vk_window_open(const char* title)
+@@ -1615,8 +2740,14 @@ static void vk_window_open(const char* title)
      }
      Uint32 flags = SDL_WINDOW_VULKAN | SDL_WINDOW_SHOWN;
      if (vk_env_on("PS3RECOMP_VK_FULLSCREEN")) flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
@@ -19532,7 +19637,7 @@ index e2687b7..4604dec 100644
                                     (int)s_vk.width, (int)s_vk.height, flags);
      s_vk.windowed = 1;          /* so vk_window_drop also shuts SDL video down */
      if (!s_vk.window) {
-@@ -1640,6 +2768,13 @@ static void vk_window_open(const char* title)
+@@ -1640,6 +2771,13 @@ static void vk_window_open(const char* title)
             SDL_GetCurrentVideoDriver(), n);
  }
  
@@ -19546,7 +19651,7 @@ index e2687b7..4604dec 100644
  static int vk_create_swapchain(void)
  {
      VkSurfaceCapabilitiesKHR caps;
-@@ -1697,20 +2832,49 @@ static int vk_create_swapchain(void)
+@@ -1697,20 +2835,49 @@ static int vk_create_swapchain(void)
      for (size_t k = 0; k < 4; k++)
          if (caps.supportedCompositeAlpha & alphas[k]) { alpha = alphas[k]; break; }
  
@@ -19598,7 +19703,7 @@ index e2687b7..4604dec 100644
      if (old) pvkDestroySwapchainKHR(s_vk.device, old, NULL);
      s_vk.swapchain = VK_NULL_HANDLE;
      if (r != VK_SUCCESS) { VK_LOG("vkCreateSwapchainKHR failed (VkResult %d)\n", (int)r); return -1; }
-@@ -1732,6 +2896,10 @@ static int vk_create_swapchain(void)
+@@ -1732,6 +2899,10 @@ static int vk_create_swapchain(void)
  
      s_vk.sc_extent = ext;
      s_vk.sc_count = n;
@@ -19609,7 +19714,7 @@ index e2687b7..4604dec 100644
      VK_LOG("window swapchain %ux%u, %u images, format %d\n", ext.width, ext.height, n, (int)fmt.format);
      return 0;
  }
-@@ -1739,24 +2907,88 @@ static int vk_create_swapchain(void)
+@@ -1739,24 +2910,88 @@ static int vk_create_swapchain(void)
  static void vk_swapchain_lost(void)
  {
      pvkDeviceWaitIdle(s_vk.device);
@@ -19707,7 +19812,7 @@ index e2687b7..4604dec 100644
      VkImageMemoryBarrier b = {
          .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
          .srcAccessMask = 0, .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-@@ -1764,30 +2996,100 @@ static void vk_present_window(void)
+@@ -1764,30 +2999,100 @@ static void vk_present_window(void)
          .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
          .image = s_vk.sc_images[idx], .subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
      };
@@ -19825,7 +19930,7 @@ index e2687b7..4604dec 100644
          .pWaitDstStageMask = &wait_stage,
          .commandBufferCount = 1, .pCommandBuffers = &s_vk.cmd,
          .signalSemaphoreCount = 1, .pSignalSemaphores = &s_vk.sc_done[idx],
-@@ -1810,12 +3112,42 @@ static void vk_present_window(void)
+@@ -1810,12 +3115,42 @@ static void vk_present_window(void)
  
  static void vk_dump_ppm(const unsigned char* rgba)
  {
@@ -19871,7 +19976,7 @@ index e2687b7..4604dec 100644
  }
  
  static void vk_cb_present(void* ud, u32 buffer_id)
-@@ -1869,24 +3201,36 @@ static void vk_cb_present(void* ud, u32 buffer_id)
+@@ -1869,24 +3204,36 @@ static void vk_cb_present(void* ud, u32 buffer_id)
   * Pipelines, draws and textures are the next stages; until then
   * pipeline_create reports 0, which the engine caches as "cannot build".
   * -------------------------------------------------------------------------*/
@@ -19911,7 +20016,7 @@ index e2687b7..4604dec 100644
  static void vk_eng2_shutdown(void* user);
  
  static struct {
-@@ -1912,10 +3256,25 @@ static VkFormat vk_eng_format(rsx_be_format f, u32* bpp)
+@@ -1912,10 +3259,25 @@ static VkFormat vk_eng_format(rsx_be_format f, u32* bpp)
      }
  }
  
@@ -19939,7 +20044,7 @@ index e2687b7..4604dec 100644
      VK_LOG("engine: object table full (%d)\n", VK_ENG_MAX_OBJ);
      return 0;
  }
-@@ -1933,22 +3292,22 @@ static int vk_eng_upload_rows(VkImage img, u32 layer, u32 mip, u32 w, u32 h,
+@@ -1933,22 +3295,22 @@ static int vk_eng_upload_rows(VkImage img, u32 layer, u32 mip, u32 w, u32 h,
                                size_t tight, u32 rows, const void* src, u32 row_bytes)
  {
      if (tight > row_bytes) tight = row_bytes;
@@ -19970,7 +20075,7 @@ index e2687b7..4604dec 100644
      return rc;
  }
  
-@@ -1981,33 +3340,53 @@ static VkComponentMapping vk_remap(u32 remap, u32 rsx_fmt)
+@@ -1981,33 +3343,53 @@ static VkComponentMapping vk_remap(u32 remap, u32 rsx_fmt)
                               vk_remap_sel(sel[3]), vk_remap_sel(sel[0]) };
      return m;
  }
@@ -20030,7 +20135,7 @@ index e2687b7..4604dec 100644
                  memset(&s_eobj[i], 0, sizeof s_eobj[i]);
              }
      if (s_eobj[handle].kind == VK_ENG_DEPTH && s_eobj[handle].surface) {
-@@ -2015,9 +3394,24 @@ static void vk_eng_release(void* user, u32 handle)
+@@ -2015,9 +3397,24 @@ static void vk_eng_release(void* user, u32 handle)
          s_eobj[handle].surface = 0;
          if (vk_eng_get(snap, VK_ENG_TEXTURE)) vk_eng_release(user, snap);
      }
@@ -20057,7 +20162,7 @@ index e2687b7..4604dec 100644
      memset(&s_eobj[handle], 0, sizeof s_eobj[handle]);
  }
  
-@@ -2027,20 +3421,120 @@ static void vk_eng_shutdown(void* user)
+@@ -2027,20 +3424,120 @@ static void vk_eng_shutdown(void* user)
      for (u32 i = 1; i < VK_ENG_MAX_OBJ; i++) vk_eng_release(user, i);
  }
  
@@ -20180,7 +20285,7 @@ index e2687b7..4604dec 100644
          VK_LOG("engine: colour target format %d %ux%u not supported yet\n", (int)fmt, w, h);
          return 0;
      }
-@@ -2053,46 +3547,61 @@ static u32 vk_eng_color_target_create(void* user, rsx_be_format fmt, u32 w, u32
+@@ -2053,46 +3550,61 @@ static u32 vk_eng_color_target_create(void* user, rsx_be_format fmt, u32 w, u32
                          VK_IMAGE_ASPECT_COLOR_BIT)) {
          vk_destroy_image(&o->im); return 0;
      }
@@ -20253,7 +20358,7 @@ index e2687b7..4604dec 100644
      (void)user;
      if (count > RSX_BE_MAX_COLOR_TARGETS) count = RSX_BE_MAX_COLOR_TARGETS;
      for (u32 i = 0; i < RSX_BE_MAX_COLOR_TARGETS; i++)
-@@ -2103,6 +3612,7 @@ static void vk_eng_bind_targets(void* user, const u32* surfaces, u32 count, u32
+@@ -2103,6 +3615,7 @@ static void vk_eng_bind_targets(void* user, const u32* surfaces, u32 count, u32
  
  static void vk_eng_clear_color(void* user, u32 surface, const float rgba[4])
  {
@@ -20261,7 +20366,7 @@ index e2687b7..4604dec 100644
      (void)user;
      /* The debug hook reports the last colour asked for, as Metal's does. */
      s_vk.clear_argb = ((u32)(rgba[3] * 255.0f + 0.5f) << 24) |
-@@ -2110,35 +3620,47 @@ static void vk_eng_clear_color(void* user, u32 surface, const float rgba[4])
+@@ -2110,35 +3623,47 @@ static void vk_eng_clear_color(void* user, u32 surface, const float rgba[4])
                        ((u32)(rgba[1] * 255.0f + 0.5f) <<  8) |
                         (u32)(rgba[2] * 255.0f + 0.5f);
      vk_eng_obj* o = vk_eng_get(surface, VK_ENG_COLOR);
@@ -20318,7 +20423,7 @@ index e2687b7..4604dec 100644
          vk_barrier_image(o->im.img, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_GENERAL);
          vk_barrier_image(s_vk.color.img, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_GENERAL);
          VkImageBlit blit = {
-@@ -2151,29 +3673,157 @@ static void vk_eng_present(void* user, u32 surface)
+@@ -2151,29 +3676,157 @@ static void vk_eng_present(void* user, u32 surface)
                          s_vk.color.img, VK_IMAGE_LAYOUT_GENERAL, 1, &blit,
                          (o->w == s_vk.width && o->h == s_vk.height) ? VK_FILTER_NEAREST
                                                                      : VK_FILTER_LINEAR);
@@ -20486,7 +20591,7 @@ index e2687b7..4604dec 100644
          VkBufferMemoryBarrier hb = {
              .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
              .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT, .dstAccessMask = VK_ACCESS_HOST_READ_BIT,
-@@ -2182,42 +3832,177 @@ static void vk_eng_readback(void* user, u32 surface, u32 x, u32 y, u32 w, u32 h,
+@@ -2182,42 +3835,177 @@ static void vk_eng_readback(void* user, u32 surface, u32 x, u32 y, u32 w, u32 h,
          };
          pvkCmdPipelineBarrier(s_vk.cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT,
                                0, 0, NULL, 1, &hb, 0, NULL);
@@ -20679,7 +20784,7 @@ index e2687b7..4604dec 100644
          .samples = VK_SAMPLE_COUNT_1_BIT, .tiling = VK_IMAGE_TILING_OPTIMAL,
          .usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
          .sharingMode = VK_SHARING_MODE_EXCLUSIVE, .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED };
-@@ -2229,53 +4014,91 @@ static u32 vk_eng_texture_create(void* user, rsx_be_format fmt, u32 w, u32 h,
+@@ -2229,53 +4017,91 @@ static u32 vk_eng_texture_create(void* user, rsx_be_format fmt, u32 w, u32 h,
          vk_find_memory_type(req.memoryTypeBits, 0, &type)) goto fail;
      VkMemoryAllocateInfo mai = { .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
                                   .allocationSize = req.size, .memoryTypeIndex = type };
@@ -20782,7 +20887,7 @@ index e2687b7..4604dec 100644
      return hd;
  }
  /* ---- E4: depth snapshots --------------------------------------------------
-@@ -2288,11 +4111,1284 @@ static u32 vk_eng_surface_view(void* user, u32 surface, u32 remap, u32 rsx_forma
+@@ -2288,11 +4114,1284 @@ static u32 vk_eng_surface_view(void* user, u32 surface, u32 remap, u32 rsx_forma
   * Each depth target keeps ONE snapshot texture (its handle in `surface`),
   * refilled on every request, so nothing accumulates however often the engine
   * invalidates and asks again; it goes when the depth target goes. */
@@ -22068,7 +22173,7 @@ index e2687b7..4604dec 100644
          static int warned_fmt;
          if (!warned_fmt) { VK_LOG("engine: depth snapshots need D32_SFLOAT, this device uses %d\n",
                                    (int)s_vk.depth_format); warned_fmt = 1; }
-@@ -2318,19 +5414,21 @@ static u32 vk_eng_depth_snapshot(void* user, u32 depth, u32 w, u32 h)
+@@ -2318,19 +5417,21 @@ static u32 vk_eng_depth_snapshot(void* user, u32 depth, u32 w, u32 h)
          t->kind = VK_ENG_TEXTURE; t->fmt = VK_FORMAT_R32_SFLOAT; t->bpp = 4; t->w = w; t->h = h;
          z = vk_eng_get(depth, VK_ENG_DEPTH);          /* same slot; reload for clarity */
          z->surface = snap;
@@ -22099,7 +22204,7 @@ index e2687b7..4604dec 100644
          vk_barrier_image(t->im.img, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_GENERAL);
          VkBufferImageCopy out = { .imageSubresource = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1 },
                                    .imageExtent = { w, h, 1 } };
-@@ -2345,9 +5443,8 @@ static u32 vk_eng_depth_snapshot(void* user, u32 depth, u32 w, u32 h)
+@@ -2345,9 +5446,8 @@ static u32 vk_eng_depth_snapshot(void* user, u32 depth, u32 w, u32 h)
          VkBufferImageCopy in = { .imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 },
                                   .imageExtent = { w, h, 1 } };
          pvkCmdCopyBufferToImage(s_vk.cmd, st.buf, t->im.img, VK_IMAGE_LAYOUT_GENERAL, 1, &in);
@@ -22110,7 +22215,7 @@ index e2687b7..4604dec 100644
      return rc ? 0 : snap;
  }
  /* ---- E2: pipelines and draws ---------------------------------------------
-@@ -2364,9 +5461,14 @@ static u32 vk_eng_depth_snapshot(void* user, u32 depth, u32 w, u32 h)
+@@ -2364,9 +5464,14 @@ static u32 vk_eng_depth_snapshot(void* user, u32 depth, u32 w, u32 h)
   * samplers s0..s3 would alias the pixel samplers' binding), FP16 and other
   * non-RGBA8 colour targets, depth-only passes, and stencil (the depth format
   * has no stencil aspect yet, so the test is inert). */
@@ -22127,7 +22232,7 @@ index e2687b7..4604dec 100644
  
  typedef struct vk_eng_pipe {
      int                 used;
-@@ -2377,6 +5479,9 @@ typedef struct vk_eng_pipe {
+@@ -2377,6 +5482,9 @@ typedef struct vk_eng_pipe {
  } vk_eng_pipe;
  
  static vk_eng_pipe s_epipe[VK_ENG_MAX_PIPE];
@@ -22137,7 +22242,7 @@ index e2687b7..4604dec 100644
  
  static struct {
      VkRenderPass rp[RSX_BE_MAX_COLOR_TARGETS + 1];      /* by colour count */
-@@ -2393,19 +5498,328 @@ static struct {
+@@ -2393,19 +5501,328 @@ static struct {
      u32          sc[4];
      int          have_vp, have_sc;
      u32          stencil_ref;
@@ -22468,7 +22573,7 @@ index e2687b7..4604dec 100644
  }
  
  /* The render pass for `n` RGBA8 colour attachments plus depth, LOAD/STORE in
-@@ -2421,8 +5835,8 @@ static VkRenderPass vk_eng_render_pass(u32 n)
+@@ -2421,8 +5838,8 @@ static VkRenderPass vk_eng_render_pass(u32 n)
              .format = (i < n) ? VK_FORMAT_R8G8B8A8_UNORM : s_vk.depth_format,
              .samples = VK_SAMPLE_COUNT_1_BIT,
              .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD, .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
@@ -22479,7 +22584,7 @@ index e2687b7..4604dec 100644
              .initialLayout = VK_IMAGE_LAYOUT_GENERAL, .finalLayout = VK_IMAGE_LAYOUT_GENERAL };
          if (i < n) cref[i] = (VkAttachmentReference){ i, VK_IMAGE_LAYOUT_GENERAL };
      }
-@@ -2454,6 +5868,10 @@ static VkBlendFactor vk_gcm_blend_factor(u32 f)
+@@ -2454,6 +5871,10 @@ static VkBlendFactor vk_gcm_blend_factor(u32 f)
      case 0x0306: return VK_BLEND_FACTOR_DST_COLOR;
      case 0x0307: return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
      case 0x0308: return VK_BLEND_FACTOR_SRC_ALPHA_SATURATE;
@@ -22490,7 +22595,7 @@ index e2687b7..4604dec 100644
      default:     return VK_BLEND_FACTOR_ONE;
      }
  }
-@@ -2495,43 +5913,264 @@ static VkStencilOpState vk_gcm_stencil_face(u32 func, u32 fail, u32 zfail, u32 z
+@@ -2495,43 +5916,264 @@ static VkStencilOpState vk_gcm_stencil_face(u32 func, u32 fail, u32 zfail, u32 z
      return s;
  }
  
@@ -22766,7 +22871,7 @@ index e2687b7..4604dec 100644
      P->stride = vertex_stride;
      P->rt_count = rt_count;
      P->used = 1;
-@@ -2542,12 +6181,15 @@ static void vk_eng_pipeline_release(void* user, u32 pipeline)
+@@ -2542,12 +6184,15 @@ static void vk_eng_pipeline_release(void* user, u32 pipeline)
  {
      (void)user;
      if (!pipeline || pipeline > VK_ENG_MAX_PIPE || !s_epipe[pipeline - 1].used) return;
@@ -22782,7 +22887,7 @@ index e2687b7..4604dec 100644
      if (s_e2.pipeline == pipeline) s_e2.pipeline = 0;
  }
  
-@@ -2573,7 +6215,8 @@ static VkPipeline vk_eng_variant(vk_eng_pipe* P, u32 topo_idx)
+@@ -2573,7 +6218,8 @@ static VkPipeline vk_eng_variant(vk_eng_pipe* P, u32 topo_idx)
          va[s] = (VkVertexInputAttributeDescription){ s, 0, VK_FORMAT_R32G32B32A32_SFLOAT, s * 16u };
      VkPipelineVertexInputStateCreateInfo vi = {
          .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
@@ -22792,7 +22897,7 @@ index e2687b7..4604dec 100644
          .vertexAttributeDescriptionCount = P->nslots, .pVertexAttributeDescriptions = va };
      VkPipelineInputAssemblyStateCreateInfo ia = {
          .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-@@ -2593,6 +6236,8 @@ static VkPipeline vk_eng_variant(vk_eng_pipe* P, u32 topo_idx)
+@@ -2593,6 +6239,8 @@ static VkPipeline vk_eng_variant(vk_eng_pipe* P, u32 topo_idx)
                                                                             : VK_CULL_MODE_BACK_BIT,
          .frontFace = (rs->front_face == 0x0901u) ? VK_FRONT_FACE_COUNTER_CLOCKWISE
                                                   : VK_FRONT_FACE_CLOCKWISE,
@@ -22801,7 +22906,7 @@ index e2687b7..4604dec 100644
          .lineWidth = 1.0f };
      VkPipelineMultisampleStateCreateInfo ms = {
          .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-@@ -2609,7 +6254,8 @@ static VkPipeline vk_eng_variant(vk_eng_pipe* P, u32 topo_idx)
+@@ -2609,7 +6257,8 @@ static VkPipeline vk_eng_variant(vk_eng_pipe* P, u32 topo_idx)
          .depthWriteEnable = (rs->depth_test && rs->depth_write) ? VK_TRUE : VK_FALSE,
          .depthCompareOp = vk_gcm_compare(rs->depth_func),
          .stencilTestEnable = rs->stencil_enable ? VK_TRUE : VK_FALSE,
@@ -22811,7 +22916,7 @@ index e2687b7..4604dec 100644
      /* nv40 COLOR_MASK: B [0:7], G [8:15], R [16:23], A [24:31], any bit set.
       * Every attachment takes target A's blend and mask (see rsx_draw_engine.h). */
      VkColorComponentFlags wm = 0;
-@@ -2617,36 +6263,58 @@ static VkPipeline vk_eng_variant(vk_eng_pipe* P, u32 topo_idx)
+@@ -2617,36 +6266,58 @@ static VkPipeline vk_eng_variant(vk_eng_pipe* P, u32 topo_idx)
      if ((rs->color_mask >>  8) & 0xFFu) wm |= VK_COLOR_COMPONENT_G_BIT;
      if ((rs->color_mask >>  0) & 0xFFu) wm |= VK_COLOR_COMPONENT_B_BIT;
      if ((rs->color_mask >> 24) & 0xFFu) wm |= VK_COLOR_COMPONENT_A_BIT;
@@ -22879,7 +22984,7 @@ index e2687b7..4604dec 100644
      return P->variant[topo_idx];
  }
  
-@@ -2654,35 +6322,86 @@ static void vk_eng_bind_pipeline(void* user, u32 pipeline) { (void)user; s_e2.pi
+@@ -2654,35 +6325,86 @@ static void vk_eng_bind_pipeline(void* user, u32 pipeline) { (void)user; s_e2.pi
  
  static void vk_eng2_shutdown(void* user)
  {
@@ -22976,7 +23081,7 @@ index e2687b7..4604dec 100644
      s_e2.ps_bytes = bytes;
  }
  static void vk_eng_bind_textures(void* user, const u32* textures,
-@@ -2702,17 +6421,29 @@ static void vk_eng_bind_vertex_textures(void* user, const u32* textures,
+@@ -2702,17 +6424,29 @@ static void vk_eng_bind_vertex_textures(void* user, const u32* textures,
      (void)user; (void)textures; (void)samplers;
      if (mask && !(s_e2.warned & 8u)) { VK_LOG("engine: vertex textures not supported yet\n"); s_e2.warned |= 8u; }
  }
@@ -23008,7 +23113,7 @@ index e2687b7..4604dec 100644
  
  static VkFramebuffer vk_eng_framebuffer(VkRenderPass rp, const u32* rt, u32 n, VkImageView dview,
                                          u32 dkey, u32 w, u32 h)
-@@ -2720,9 +6451,19 @@ static VkFramebuffer vk_eng_framebuffer(VkRenderPass rp, const u32* rt, u32 n, V
+@@ -2720,9 +6454,19 @@ static VkFramebuffer vk_eng_framebuffer(VkRenderPass rp, const u32* rt, u32 n, V
      u32 key[RSX_BE_MAX_COLOR_TARGETS + 1] = { 0 };
      for (u32 i = 0; i < n; i++) key[i] = rt[i];
      key[RSX_BE_MAX_COLOR_TARGETS] = dkey;
@@ -23031,7 +23136,7 @@ index e2687b7..4604dec 100644
      VkImageView views[RSX_BE_MAX_COLOR_TARGETS + 1];
      for (u32 i = 0; i < n; i++) views[i] = s_eobj[rt[i]].im.view;
      views[n] = dview;
-@@ -2733,6 +6474,8 @@ static VkFramebuffer vk_eng_framebuffer(VkRenderPass rp, const u32* rt, u32 n, V
+@@ -2733,6 +6477,8 @@ static VkFramebuffer vk_eng_framebuffer(VkRenderPass rp, const u32* rt, u32 n, V
      if (pvkCreateFramebuffer(s_vk.device, &fci, NULL, &fb) != VK_SUCCESS) return VK_NULL_HANDLE;
      memcpy(s_e2.fb[s_e2.fb_count].key, key, sizeof key);
      s_e2.fb[s_e2.fb_count++].fb = fb;
@@ -23040,7 +23145,7 @@ index e2687b7..4604dec 100644
      return fb;
  }
  
-@@ -2743,16 +6486,17 @@ static VkImageView vk_eng_scratch_depth(u32 w, u32 h)
+@@ -2743,16 +6489,17 @@ static VkImageView vk_eng_scratch_depth(u32 w, u32 h)
      if (s_e2.scratch_depth.view && s_e2.scratch_w >= w && s_e2.scratch_h >= h)
          return s_e2.scratch_depth.view;
      vk_eng_drop_framebuffers();
@@ -23062,7 +23167,7 @@ index e2687b7..4604dec 100644
      s_e2.scratch_w = w; s_e2.scratch_h = h;
      return s_e2.scratch_depth.view;
  }
-@@ -2773,12 +6517,31 @@ static VkSampler vk_eng_sampler(const rsx_be_sampler_desc* d)
+@@ -2773,12 +6520,31 @@ static VkSampler vk_eng_sampler(const rsx_be_sampler_desc* d)
  {
      u32 lo, hi;
      memcpy(&lo, &d->min_lod, 4); memcpy(&hi, &d->max_lod, 4);
@@ -23097,7 +23202,7 @@ index e2687b7..4604dec 100644
      float min_lod = d->min_lod, max_lod = d->mip_present ? d->max_lod : d->min_lod;
      if (max_lod < min_lod) max_lod = min_lod;
      VkSamplerCreateInfo sci = {
-@@ -2789,62 +6552,154 @@ static VkSampler vk_eng_sampler(const rsx_be_sampler_desc* d)
+@@ -2789,62 +6555,154 @@ static VkSampler vk_eng_sampler(const rsx_be_sampler_desc* d)
          .addressModeU = vk_gcm_wrap(d->wrap_s), .addressModeV = vk_gcm_wrap(d->wrap_t),
          .addressModeW = vk_gcm_wrap(d->wrap_r),
          .minLod = min_lod, .maxLod = max_lod,
@@ -23279,7 +23384,7 @@ index e2687b7..4604dec 100644
  
      /* Targets: every member of a set is target A's size (engine contract). */
      const u32 n = s_eng_bound.nrt;
-@@ -2867,33 +6722,163 @@ static void vk_eng_draw(void* user, rsx_topology topology, const void* vertices,
+@@ -2867,33 +6725,163 @@ static void vk_eng_draw(void* user, rsx_topology topology, const void* vertices,
      VkFramebuffer fb = vk_eng_framebuffer(rp, s_eng_bound.rt, n, dview, dkey, w, h);
      if (!pipe || !rp || !fb) return;
  
@@ -23462,7 +23567,7 @@ index e2687b7..4604dec 100644
          if (x1 > w) x1 = w;
          if (y1 > h) y1 = h;
          sc.offset.x = (int32_t)x0; sc.offset.y = (int32_t)y0;
-@@ -2902,26 +6887,146 @@ static void vk_eng_draw(void* user, rsx_topology topology, const void* vertices,
+@@ -2902,26 +6890,146 @@ static void vk_eng_draw(void* user, rsx_topology topology, const void* vertices,
      pvkCmdSetViewport(s_vk.cmd, 0, 1, &vp);
      pvkCmdSetScissor(s_vk.cmd, 0, 1, &sc);
      pvkCmdSetStencilReference(s_vk.cmd, VK_STENCIL_FACE_FRONT_AND_BACK, s_e2.stencil_ref & 0xFFu);
@@ -23618,7 +23723,7 @@ index e2687b7..4604dec 100644
      .texture_upload       = vk_eng_texture_upload,
      .texture_release      = vk_eng_release,
      .color_target_create  = vk_eng_color_target_create,
-@@ -2929,23 +7034,49 @@ static const rsx_draw_backend s_vk_engine_backend = {
+@@ -2929,23 +7037,49 @@ static const rsx_draw_backend s_vk_engine_backend = {
      .surface_view         = vk_eng_surface_view,
      .depth_target_create  = vk_eng_depth_target_create,
      .depth_target_release = vk_eng_release,
@@ -23669,7 +23774,7 @@ index e2687b7..4604dec 100644
  };
  
  static rsx_backend s_vulkan_backend = {
-@@ -3017,6 +7148,31 @@ static int vk_init_all(u32 width, u32 height, const char* title)
+@@ -3017,6 +7151,31 @@ static int vk_init_all(u32 width, u32 height, const char* title)
      pvkGetPhysicalDeviceFeatures(s_vk.phys, &have);
      want.textureCompressionBC = have.textureCompressionBC;
      s_vk.bc_ok = have.textureCompressionBC ? 1 : 0;
@@ -23701,7 +23806,7 @@ index e2687b7..4604dec 100644
      VkDeviceCreateInfo dci = { .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
                                 .queueCreateInfoCount = 1, .pQueueCreateInfos = &qci,
                                 .enabledExtensionCount = s_vk.windowed ? 1u : 0u,
-@@ -3024,6 +7180,7 @@ static int vk_init_all(u32 width, u32 height, const char* title)
+@@ -3024,6 +7183,7 @@ static int vk_init_all(u32 width, u32 height, const char* title)
                                 .pEnabledFeatures = &want };
      VK_CHECK(pvkCreateDevice(s_vk.phys, &dci, NULL, &s_vk.device), "vkCreateDevice");
      if (vk_load_device_functions()) return -1;
@@ -23709,7 +23814,7 @@ index e2687b7..4604dec 100644
      if (s_vk.windowed && vk_load_wsi_device_functions())
          vk_window_drop("the driver has no swapchain functions");
      pvkGetDeviceQueue(s_vk.device, s_vk.queue_family, 0, &s_vk.queue);
-@@ -3036,9 +7193,15 @@ static int vk_init_all(u32 width, u32 height, const char* title)
+@@ -3036,9 +7196,15 @@ static int vk_init_all(u32 width, u32 height, const char* title)
                                          .commandPool = s_vk.pool,
                                          .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
                                          .commandBufferCount = 1 };
@@ -23726,7 +23831,7 @@ index e2687b7..4604dec 100644
  
      if (vk_pick_depth_format()) return -1;
      if (vk_create_image(&s_vk.color, VK_FORMAT_R8G8B8A8_UNORM, s_vk.width, s_vk.height,
-@@ -3046,9 +7209,9 @@ static int vk_init_all(u32 width, u32 height, const char* title)
+@@ -3046,9 +7212,9 @@ static int vk_init_all(u32 width, u32 height, const char* title)
                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_IMAGE_ASPECT_COLOR_BIT)) return -1;
      if (vk_create_image(&s_vk.depth, s_vk.depth_format, s_vk.width, s_vk.height,
                          VK_IMAGE_USAGE_TRANSFER_DST_BIT |
@@ -23739,7 +23844,7 @@ index e2687b7..4604dec 100644
      if (vk_create_render_pass()) return -1;
      if (vk_create_pipeline_objects()) return -1;
      if (vk_guest_init()) {
-@@ -3063,18 +7226,24 @@ static int vk_init_all(u32 width, u32 height, const char* title)
+@@ -3063,18 +7229,24 @@ static int vk_init_all(u32 width, u32 height, const char* title)
       * null backend makes the same choice). */
      if (vk_begin()) return -1;
      vk_barrier_image(s_vk.color.img, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED);
@@ -23766,7 +23871,7 @@ index e2687b7..4604dec 100644
              vk_create_swapchain())
              vk_window_drop("the swapchain could not be created");
      }
-@@ -3127,6 +7296,7 @@ void rsx_vulkan_backend_shutdown(void)
+@@ -3127,6 +7299,7 @@ void rsx_vulkan_backend_shutdown(void)
      if (s_vk.device) {
          if (pvkDeviceWaitIdle) pvkDeviceWaitIdle(s_vk.device);
          vk_guest_shutdown();
@@ -23774,7 +23879,7 @@ index e2687b7..4604dec 100644
          for (int i = 0; i < VK_PIPELINE_SLOTS; i++)
              if (s_vk.pipelines[i]) pvkDestroyPipeline(s_vk.device, s_vk.pipelines[i], NULL);
          if (s_vk.pipe_layout) pvkDestroyPipelineLayout(s_vk.device, s_vk.pipe_layout, NULL);
-@@ -3143,8 +7313,11 @@ void rsx_vulkan_backend_shutdown(void)
+@@ -3143,8 +7316,11 @@ void rsx_vulkan_backend_shutdown(void)
          vk_destroy_image(&s_vk.dummy);
          vk_destroy_image(&s_vk.depth);
          vk_destroy_image(&s_vk.color);
@@ -23786,7 +23891,7 @@ index e2687b7..4604dec 100644
          if (s_vk.fence) pvkDestroyFence(s_vk.device, s_vk.fence, NULL);
          if (s_vk.pool)  pvkDestroyCommandPool(s_vk.device, s_vk.pool, NULL);
          pvkDestroyDevice(s_vk.device, NULL);
-@@ -3157,18 +7330,75 @@ void rsx_vulkan_backend_shutdown(void)
+@@ -3157,18 +7333,75 @@ void rsx_vulkan_backend_shutdown(void)
  
  int rsx_vulkan_backend_pump_messages(void)
  {
@@ -23862,14 +23967,14 @@ index e2687b7..4604dec 100644
      if (s_vk.eng_active) rsx_draw_engine_present();
      else                 vk_cb_present(&s_vk, 0);
  }
-@@ -3186,4 +7416,4 @@ u32 rsx_vulkan_backend_guest_draws(void)
+@@ -3186,4 +7419,4 @@ u32 rsx_vulkan_backend_guest_draws(void)
      return s_vk.eng_active ? rsx_draw_engine_guest_draws() : s_g.last_draws;
  }
  
 -#endif /* !_WIN32 */
 +#endif /* !_WIN32 || __MINGW32__ */
 diff --git a/libs/video/rsx_vulkan_backend.h b/libs/video/rsx_vulkan_backend.h
-index 1f919ab..3765a65 100644
+index 1f919ab3..3765a655 100644
 --- a/libs/video/rsx_vulkan_backend.h
 +++ b/libs/video/rsx_vulkan_backend.h
 @@ -34,6 +34,9 @@
@@ -23901,7 +24006,7 @@ index 1f919ab..3765a65 100644
  u32  rsx_vulkan_backend_debug_color(void);
  
 diff --git a/libs/video/sys_rsx.c b/libs/video/sys_rsx.c
-index 2a64c8e..cf81b54 100644
+index 2a64c8e1..cf81b545 100644
 --- a/libs/video/sys_rsx.c
 +++ b/libs/video/sys_rsx.c
 @@ -217,7 +217,7 @@ void rsx_raise_user_cmd(uint32_t arg)
@@ -23914,7 +24019,7 @@ index 2a64c8e..cf81b54 100644
            fprintf(stderr, "[usercmd] #%lu arg=0x%08X handlers=0x%X qid=%u\n",
                    n, arg, mask, s_isr_qid); fflush(stderr); } }
 diff --git a/libs/video/tests/test_fp_decompiler.c b/libs/video/tests/test_fp_decompiler.c
-index b75424f..6291259 100644
+index b75424fe..62912598 100644
 --- a/libs/video/tests/test_fp_decompiler.c
 +++ b/libs/video/tests/test_fp_decompiler.c
 @@ -300,6 +300,240 @@ int main(void)
@@ -24159,7 +24264,7 @@ index b75424f..6291259 100644
      printf("Results: %d passed, %d failed\n", g_pass, g_fail);
      return g_fail ? 1 : 0;
 diff --git a/libs/video/tests/test_rsx_draw_engine.c b/libs/video/tests/test_rsx_draw_engine.c
-index 704ccef..f3192be 100644
+index 704ccefd..f3192be3 100644
 --- a/libs/video/tests/test_rsx_draw_engine.c
 +++ b/libs/video/tests/test_rsx_draw_engine.c
 @@ -152,6 +152,18 @@ static u32 stub_depth_create(void* u, u32 w, u32 h)
@@ -24437,7 +24542,7 @@ index 704ccef..f3192be 100644
      free(vm_base);
      printf(g_failures ? "\n%d check(s) FAILED\n" : "\nall checks passed\n",
 diff --git a/libs/video/tests/test_texture_layout.c b/libs/video/tests/test_texture_layout.c
-index 5a825a0..ea20eb9 100644
+index 5a825a0f..ea20eb95 100644
 --- a/libs/video/tests/test_texture_layout.c
 +++ b/libs/video/tests/test_texture_layout.c
 @@ -663,6 +663,43 @@ static void test_remap_g8b8_lanes(void)
@@ -24544,7 +24649,7 @@ index 5a825a0..ea20eb9 100644
  
 diff --git a/libs/video/tests/test_vertex_fetch.c b/libs/video/tests/test_vertex_fetch.c
 new file mode 100644
-index 0000000..c6b4940
+index 00000000..c6b49400
 --- /dev/null
 +++ b/libs/video/tests/test_vertex_fetch.c
 @@ -0,0 +1,154 @@
@@ -24704,7 +24809,7 @@ index 0000000..c6b4940
 +}
 diff --git a/libs/video/tests/test_vertex_remap.c b/libs/video/tests/test_vertex_remap.c
 new file mode 100644
-index 0000000..53d9fec
+index 00000000..53d9fec2
 --- /dev/null
 +++ b/libs/video/tests/test_vertex_remap.c
 @@ -0,0 +1,134 @@
@@ -24844,7 +24949,7 @@ index 0000000..53d9fec
 +}
 diff --git a/libs/video/tests/test_vp_const_usage.c b/libs/video/tests/test_vp_const_usage.c
 new file mode 100644
-index 0000000..d7f65db
+index 00000000..d7f65db3
 --- /dev/null
 +++ b/libs/video/tests/test_vp_const_usage.c
 @@ -0,0 +1,114 @@
@@ -24963,7 +25068,7 @@ index 0000000..d7f65db
 +    return fails ? 1 : 0;
 +}
 diff --git a/runtime/host/host_posix.c b/runtime/host/host_posix.c
-index 36acb36..9d953c1 100644
+index 36acb361..9d953c1c 100644
 --- a/runtime/host/host_posix.c
 +++ b/runtime/host/host_posix.c
 @@ -20,6 +20,7 @@
@@ -24986,7 +25091,7 @@ index 36acb36..9d953c1 100644
  
  /* One guest VM, with its size published for the OOB guard above. */
 diff --git a/runtime/host/host_stubs.c b/runtime/host/host_stubs.c
-index 6e79ec3..34602f8 100644
+index 6e79ec31..34602f86 100644
 --- a/runtime/host/host_stubs.c
 +++ b/runtime/host/host_stubs.c
 @@ -64,6 +64,16 @@ uint32_t vm_read32(uint64_t addr)
@@ -25008,7 +25113,7 @@ index 6e79ec3..34602f8 100644
  
 diff --git a/runtime/memory/guest_mem_atomic.h b/runtime/memory/guest_mem_atomic.h
 new file mode 100644
-index 0000000..2097690
+index 00000000..20976900
 --- /dev/null
 +++ b/runtime/memory/guest_mem_atomic.h
 @@ -0,0 +1,140 @@
@@ -25154,7 +25259,7 @@ index 0000000..2097690
 +#endif
 diff --git a/runtime/memory/guest_wtrack.c b/runtime/memory/guest_wtrack.c
 new file mode 100644
-index 0000000..1e29dc7
+index 00000000..1e29dc79
 --- /dev/null
 +++ b/runtime/memory/guest_wtrack.c
 @@ -0,0 +1,257 @@
@@ -25417,7 +25522,7 @@ index 0000000..1e29dc7
 +#endif
 diff --git a/runtime/memory/guest_wtrack.h b/runtime/memory/guest_wtrack.h
 new file mode 100644
-index 0000000..a430c55
+index 00000000..a430c55b
 --- /dev/null
 +++ b/runtime/memory/guest_wtrack.h
 @@ -0,0 +1,61 @@
@@ -25483,7 +25588,7 @@ index 0000000..a430c55
 +#endif
 +#endif
 diff --git a/runtime/memory/vm.h b/runtime/memory/vm.h
-index 9ea87db..ec6e542 100644
+index 9ea87dbd..ec6e5428 100644
 --- a/runtime/memory/vm.h
 +++ b/runtime/memory/vm.h
 @@ -21,6 +21,7 @@
@@ -25510,7 +25615,7 @@ index 9ea87db..ec6e542 100644
  
 diff --git a/runtime/platform/guest_vm.h b/runtime/platform/guest_vm.h
 new file mode 100644
-index 0000000..7b71868
+index 00000000..7b71868b
 --- /dev/null
 +++ b/runtime/platform/guest_vm.h
 @@ -0,0 +1,66 @@
@@ -25582,7 +25687,7 @@ index 0000000..7b71868
 +#endif /* PS3RECOMP_GUEST_VM_H */
 diff --git a/runtime/platform/mingw_posix.h b/runtime/platform/mingw_posix.h
 new file mode 100644
-index 0000000..417cdb9
+index 00000000..417cdb96
 --- /dev/null
 +++ b/runtime/platform/mingw_posix.h
 @@ -0,0 +1,20 @@
@@ -25608,10 +25713,10 @@ index 0000000..417cdb9
 +#endif
 diff --git a/runtime/platform/ps3_hot_pin.c b/runtime/platform/ps3_hot_pin.c
 new file mode 100644
-index 0000000..8d6e47f
+index 00000000..27a2070a
 --- /dev/null
 +++ b/runtime/platform/ps3_hot_pin.c
-@@ -0,0 +1,169 @@
+@@ -0,0 +1,181 @@
 +/*
 + * ps3_hot_pin.c -- PS3_HOT_PIN=1: a physical core for each hot host thread.
 + *
@@ -25647,6 +25752,7 @@ index 0000000..8d6e47f
 +static pthread_once_t s_hp_once = PTHREAD_ONCE_INIT;
 +
 +static int hp_cpus[64], hp_ncores;       /* one logical CPU per physical core */
++static int hp_sib[64][8], hp_nsib[64];   /* each core's logical CPUs */
 +static cpu_set_t hp_other;               /* everything not handed to a hot thread */
 +
 +static int hp_read_int_list(const char* path, int* out, int max)
@@ -25682,12 +25788,23 @@ index 0000000..8d6e47f
 +        if (n <= 0) return 0;
 +        if (n > 1) smt = 1;
 +        for (int i = 0; i < n; i++) if (sib[i] < 256) seen[sib[i]] = 1;
-+        if (hp_ncores < 64) hp_cpus[hp_ncores++] = c;
++        if (hp_ncores < 64) {
++            memcpy(hp_sib[hp_ncores], sib, sizeof sib);
++            hp_nsib[hp_ncores] = n;
++            hp_cpus[hp_ncores++] = c;
++        }
 +    }
 +    if (!smt || hp_ncores < HP_NROLES) return 0;
 +    CPU_ZERO(&hp_other);
 +    for (int c = 0; c < ncpu && c < CPU_SETSIZE; c++) CPU_SET(c, &hp_other);
 +    for (int r = 0; r < HP_NROLES; r++) CPU_CLR(hp_cpus[r], &hp_other);
++    /* PS3_HOT_PIN=2: the main PPU thread and rsx get their whole core, the
++     * other threads only the siblings of the rest (rsx-record, the SPUs).
++     * The Wwise job chain's bursts on a sibling of the main thread slowed it
++     * in the frames that were already late. */
++    if (s_hp_on >= 2 && ncpu > 2 * HP_NROLES - 2)
++        for (int r = HP_MAIN; r <= HP_RSX; r++)
++            for (int i = 0; i < hp_nsib[r]; i++) CPU_CLR(hp_sib[r][i], &hp_other);
 +    return 1;
 +}
 +
@@ -25772,7 +25889,7 @@ index 0000000..8d6e47f
 +{
 +    if (__builtin_expect(s_hp_on < 0, 0)) {
 +        const char* e = getenv("PS3_HOT_PIN");
-+        __atomic_store_n(&s_hp_on, e && atoi(e) > 0 ? 1 : 0, __ATOMIC_RELAXED);
++        __atomic_store_n(&s_hp_on, e && atoi(e) > 0 ? atoi(e) : 0, __ATOMIC_RELAXED);
 +    }
 +    if (!s_hp_on || role < 0 || role >= HP_NROLES) return;
 +    __atomic_store_n(&s_hp_tid[role], (int)syscall(SYS_gettid), __ATOMIC_RELAXED);
@@ -25782,7 +25899,7 @@ index 0000000..8d6e47f
 +void ps3_hot_pin_register(int role) { (void)role; }
 +#endif
 diff --git a/runtime/ppu/ppu_context.h b/runtime/ppu/ppu_context.h
-index cf7f206..34ca4b8 100644
+index cf7f206a..34ca4b85 100644
 --- a/runtime/ppu/ppu_context.h
 +++ b/runtime/ppu/ppu_context.h
 @@ -95,6 +95,9 @@ typedef struct ppu_context {
@@ -25812,7 +25929,7 @@ index cf7f206..34ca4b8 100644
  }
  
 diff --git a/runtime/ppu/ppu_fs.cpp b/runtime/ppu/ppu_fs.cpp
-index e8f6c2b..9fb33d7 100644
+index e8f6c2bd..9fb33d75 100644
 --- a/runtime/ppu/ppu_fs.cpp
 +++ b/runtime/ppu/ppu_fs.cpp
 @@ -13,6 +13,12 @@
@@ -26130,7 +26247,7 @@ index e8f6c2b..9fb33d7 100644
      }
      if (getenv("PS3_FSLOG"))
 diff --git a/runtime/ppu/ppu_hle.cpp b/runtime/ppu/ppu_hle.cpp
-index acbaf12..03159da 100644
+index acbaf126..03159da6 100644
 --- a/runtime/ppu/ppu_hle.cpp
 +++ b/runtime/ppu/ppu_hle.cpp
 @@ -39,13 +39,59 @@ extern "C" void ps3_hle_register(uint32_t nid, const char* name, void* handler)
@@ -26698,7 +26815,7 @@ index acbaf12..03159da 100644
  }
  
 diff --git a/runtime/ppu/ppu_loader.cpp b/runtime/ppu/ppu_loader.cpp
-index e73a151..f4c748e 100644
+index e73a1512..f4c748e7 100644
 --- a/runtime/ppu/ppu_loader.cpp
 +++ b/runtime/ppu/ppu_loader.cpp
 @@ -20,6 +20,11 @@
@@ -28268,7 +28385,7 @@ index e73a151..f4c748e 100644
           * empty argv is hard to recognise from the guest side. */
          for (uint32_t a = 0; a < argc_n; a++) {
 diff --git a/runtime/ppu/ppu_memory.h b/runtime/ppu/ppu_memory.h
-index b3bc534..ab6dff6 100644
+index b3bc534d..ab6dff67 100644
 --- a/runtime/ppu/ppu_memory.h
 +++ b/runtime/ppu/ppu_memory.h
 @@ -11,6 +11,7 @@
@@ -28446,7 +28563,7 @@ index b3bc534..ab6dff6 100644
          ok = atomic_compare_exchange_strong_explicit(
              atom, &expected, desired,
 diff --git a/runtime/ppu/ppu_sysprx.cpp b/runtime/ppu/ppu_sysprx.cpp
-index d857f30..8269e72 100644
+index d857f308..8269e725 100644
 --- a/runtime/ppu/ppu_sysprx.cpp
 +++ b/runtime/ppu/ppu_sysprx.cpp
 @@ -16,17 +16,25 @@
@@ -29171,7 +29288,7 @@ index d857f30..8269e72 100644
      ps3_hle_register_ctx(ps3_compute_nid("sys_mmapper_map_memory"),     "sys_mmapper_map_memory",     crt_ok);
 diff --git a/runtime/ppu/ppu_trampoline_tls.cpp b/runtime/ppu/ppu_trampoline_tls.cpp
 new file mode 100644
-index 0000000..1790f24
+index 00000000..1790f24a
 --- /dev/null
 +++ b/runtime/ppu/ppu_trampoline_tls.cpp
 @@ -0,0 +1,28 @@
@@ -29205,7 +29322,7 @@ index 0000000..1790f24
 +#endif
 diff --git a/runtime/ppu/ppu_vmx.h b/runtime/ppu/ppu_vmx.h
 new file mode 100644
-index 0000000..04336bc
+index 00000000..04336bc7
 --- /dev/null
 +++ b/runtime/ppu/ppu_vmx.h
 @@ -0,0 +1,576 @@
@@ -29786,7 +29903,7 @@ index 0000000..04336bc
 +#endif
 +#endif /* PPU_VMX_H */
 diff --git a/runtime/ppu/tests/boot_main.cpp b/runtime/ppu/tests/boot_main.cpp
-index a55afb0..3233e42 100644
+index a55afb05..3233e427 100644
 --- a/runtime/ppu/tests/boot_main.cpp
 +++ b/runtime/ppu/tests/boot_main.cpp
 @@ -71,9 +71,11 @@ void     ps3_load_prx_modules(void) {}
@@ -30005,7 +30122,7 @@ index a55afb0..3233e42 100644
      printf("\n[boot] dispatching entry OPD 0x%08X (stack top 0x%08X)\n\n", entry, stack_top);
  #ifdef _WIN32
 diff --git a/runtime/ppu/tests/smoke/smoke_recomp.c b/runtime/ppu/tests/smoke/smoke_recomp.c
-index 092654c..cd613a2 100644
+index 092654c3..cd613a26 100644
 --- a/runtime/ppu/tests/smoke/smoke_recomp.c
 +++ b/runtime/ppu/tests/smoke/smoke_recomp.c
 @@ -117,6 +117,7 @@ extern unsigned int cellGcm_flip_request_count(void);
@@ -30071,7 +30188,7 @@ index 092654c..cd613a2 100644
      ctx->gpr[4]  = SMOKE_SC_EXITSTAT;     /* s64* exit status (out) */
 diff --git a/runtime/ppu/tests/test_vmx_simd.c b/runtime/ppu/tests/test_vmx_simd.c
 new file mode 100644
-index 0000000..d4234cf
+index 00000000..d4234cfa
 --- /dev/null
 +++ b/runtime/ppu/tests/test_vmx_simd.c
 @@ -0,0 +1,165 @@
@@ -30242,7 +30359,7 @@ index 0000000..d4234cf
 +}
 diff --git a/runtime/ppu/tests/test_vmx_simd_impl.c b/runtime/ppu/tests/test_vmx_simd_impl.c
 new file mode 100644
-index 0000000..75d8e5b
+index 00000000..75d8e5b6
 --- /dev/null
 +++ b/runtime/ppu/tests/test_vmx_simd_impl.c
 @@ -0,0 +1,48 @@
@@ -30295,7 +30412,7 @@ index 0000000..75d8e5b
 +#endif
 +}
 diff --git a/runtime/prx/prx_loader.c b/runtime/prx/prx_loader.c
-index 9cc3670..278b998 100644
+index 9cc36701..278b9987 100644
 --- a/runtime/prx/prx_loader.c
 +++ b/runtime/prx/prx_loader.c
 @@ -15,6 +15,10 @@
@@ -30479,7 +30596,7 @@ index 9cc3670..278b998 100644
      fprintf(stderr,
              "[prx] loaded %-12s base=0x%08X size=%u (0x%X) funcs=%u/%llu exports=%u\n",
 diff --git a/runtime/prx/prx_loader.h b/runtime/prx/prx_loader.h
-index 0c19daa..97aad61 100644
+index 0c19daa0..97aad618 100644
 --- a/runtime/prx/prx_loader.h
 +++ b/runtime/prx/prx_loader.h
 @@ -114,6 +114,34 @@ uint32_t prx_resolve_export(uint32_t nid);
@@ -30518,7 +30635,7 @@ index 0c19daa..97aad61 100644
  }
  #endif
 diff --git a/runtime/ps3_log.h b/runtime/ps3_log.h
-index 4b7df8c..88a5f49 100644
+index 4b7df8c5..88a5f49e 100644
 --- a/runtime/ps3_log.h
 +++ b/runtime/ps3_log.h
 @@ -36,7 +36,7 @@ static __inline int ps3_log_verbose(void)
@@ -30532,7 +30649,7 @@ index 4b7df8c..88a5f49 100644
          if (e) v = (e[0] && e[0] != '0') ? 1 : 0;
 diff --git a/runtime/ps3_thread_name.h b/runtime/ps3_thread_name.h
 new file mode 100644
-index 0000000..71ae9b4
+index 00000000..71ae9b47
 --- /dev/null
 +++ b/runtime/ps3_thread_name.h
 @@ -0,0 +1,27 @@
@@ -30564,7 +30681,7 @@ index 0000000..71ae9b4
 +
 +#endif /* PS3_THREAD_NAME_H */
 diff --git a/runtime/spu/spu_channels.c b/runtime/spu/spu_channels.c
-index 0b235d0..aac208b 100644
+index 0b235d02..aac208bb 100644
 --- a/runtime/spu/spu_channels.c
 +++ b/runtime/spu/spu_channels.c
 @@ -12,18 +12,21 @@
@@ -33215,7 +33332,7 @@ index 0b235d0..aac208b 100644
 +}
 diff --git a/runtime/spu/spu_coh_inline.h b/runtime/spu/spu_coh_inline.h
 new file mode 100644
-index 0000000..9dee71d
+index 00000000..9dee71dc
 --- /dev/null
 +++ b/runtime/spu/spu_coh_inline.h
 @@ -0,0 +1,25 @@
@@ -33245,7 +33362,7 @@ index 0000000..9dee71d
 +}
 +#endif
 diff --git a/runtime/spu/spu_coherency.c b/runtime/spu/spu_coherency.c
-index 7ac619f..512202f 100644
+index 7ac619f3..512202fe 100644
 --- a/runtime/spu/spu_coherency.c
 +++ b/runtime/spu/spu_coherency.c
 @@ -12,6 +12,10 @@
@@ -33831,7 +33948,7 @@ index 7ac619f..512202f 100644
               * waiter re-polls its predicate on a timeout as well, so a
               * straggling store costs latency and not the wakeup itself. */
 diff --git a/runtime/spu/spu_coherency.h b/runtime/spu/spu_coherency.h
-index ca76ccd..a166531 100644
+index ca76ccd1..a166531d 100644
 --- a/runtime/spu/spu_coherency.h
 +++ b/runtime/spu/spu_coherency.h
 @@ -36,12 +36,36 @@ extern "C" {
@@ -33913,7 +34030,7 @@ index ca76ccd..a166531 100644
   * this at zero is a coherence miss; nonzero moves the question downstream. */
 diff --git a/runtime/spu/spu_cold.c b/runtime/spu/spu_cold.c
 new file mode 100644
-index 0000000..055cae6
+index 00000000..055cae6b
 --- /dev/null
 +++ b/runtime/spu/spu_cold.c
 @@ -0,0 +1,288 @@
@@ -34206,7 +34323,7 @@ index 0000000..055cae6
 +#endif
 +}
 diff --git a/runtime/spu/spu_context.h b/runtime/spu/spu_context.h
-index 8d8e4aa..58c1643 100644
+index 8d8e4aac..58c16431 100644
 --- a/runtime/spu/spu_context.h
 +++ b/runtime/spu/spu_context.h
 @@ -38,20 +38,30 @@ extern "C" {
@@ -35042,7 +35159,7 @@ index 8d8e4aa..58c1643 100644
              _tf(ctx);                                          \
          }                                                      \
 diff --git a/runtime/spu/spu_dispatch_mt.c b/runtime/spu/spu_dispatch_mt.c
-index d9f86bb..c610dad 100644
+index d9f86bb4..c610dad5 100644
 --- a/runtime/spu/spu_dispatch_mt.c
 +++ b/runtime/spu/spu_dispatch_mt.c
 @@ -28,7 +28,7 @@ void spu_indirect_branch_mt(spu_context* ctx)
@@ -35075,7 +35192,7 @@ index d9f86bb..c610dad 100644
              ctx->pc = pc;
              __attribute__((musttail)) return fn(ctx);
 diff --git a/runtime/spu/spu_dma.h b/runtime/spu/spu_dma.h
-index 90f3221..f5abe8d 100644
+index 90f3221e..f5abe8da 100644
 --- a/runtime/spu/spu_dma.h
 +++ b/runtime/spu/spu_dma.h
 @@ -16,6 +16,7 @@
@@ -36276,7 +36393,7 @@ index 90f3221..f5abe8d 100644
                        spu->image_id, value, spu->mfc_tag_mask, mfc->tag_completed,
                        spu->mfc_tag_status,
 diff --git a/runtime/spu/spu_drain.c b/runtime/spu/spu_drain.c
-index 931d3b3..0eeccdf 100644
+index 931d3b34..0eeccdfd 100644
 --- a/runtime/spu/spu_drain.c
 +++ b/runtime/spu/spu_drain.c
 @@ -5,6 +5,7 @@
@@ -36688,7 +36805,7 @@ index 931d3b3..0eeccdf 100644
                              (unsigned)(return_pc & SPU_LS_MASK), pc, ctx->image_id, ctx->host_depth,
                              (int)ctx->resident_ovl); }
 diff --git a/runtime/spu/spu_helpers.h b/runtime/spu/spu_helpers.h
-index 0fca7f5..6002456 100644
+index 0fca7f55..60024565 100644
 --- a/runtime/spu/spu_helpers.h
 +++ b/runtime/spu/spu_helpers.h
 @@ -21,6 +21,17 @@
@@ -39196,7 +39313,7 @@ index 0fca7f5..6002456 100644
 +
  #endif /* SPU_HELPERS_H */
 diff --git a/runtime/spu/spu_interp.c b/runtime/spu/spu_interp.c
-index e9f59de..788cf46 100644
+index e9f59deb..788cf46f 100644
 --- a/runtime/spu/spu_interp.c
 +++ b/runtime/spu/spu_interp.c
 @@ -5,6 +5,7 @@
@@ -39725,7 +39842,7 @@ index e9f59de..788cf46 100644
              return;
          if ((next & 0x3FFFC) == target) return;   /* no-progress guard */
 diff --git a/runtime/spu/spu_interp_tables.inc b/runtime/spu/spu_interp_tables.inc
-index b16834e..90f9dd8 100644
+index b16834e3..90f9dd8c 100644
 --- a/runtime/spu/spu_interp_tables.inc
 +++ b/runtime/spu/spu_interp_tables.inc
 @@ -142,6 +142,7 @@ typedef enum {
@@ -39780,7 +39897,7 @@ index b16834e..90f9dd8 100644
      case 0x4D: return SPU_cgthi;
      case 0x4E: return SPU_cgtbi;
 diff --git a/runtime/spu/spu_lifted_job.h b/runtime/spu/spu_lifted_job.h
-index 58c9082..25c445b 100644
+index 58c9082e..25c445b4 100644
 --- a/runtime/spu/spu_lifted_job.h
 +++ b/runtime/spu/spu_lifted_job.h
 @@ -27,7 +27,7 @@ extern uint8_t* vm_base;
@@ -39949,7 +40066,7 @@ index 58c9082..25c445b 100644
      if (opts && opts->spu_id) {
          extern void spu_thread_publish_ctx(uint32_t tid, void* c);
 diff --git a/runtime/spu/spu_lifted_thread.c b/runtime/spu/spu_lifted_thread.c
-index 945829d..fe7755e 100644
+index 945829dc..fe7755e6 100644
 --- a/runtime/spu/spu_lifted_thread.c
 +++ b/runtime/spu/spu_lifted_thread.c
 @@ -1,6 +1,7 @@
@@ -40057,7 +40174,7 @@ index 945829d..fe7755e 100644
  
      /* The SPU has stopped, so its MFC engine is idle and the slot it holds in
 diff --git a/runtime/spu/spu_lifted_thread.h b/runtime/spu/spu_lifted_thread.h
-index 5805cdb..f4e2053 100644
+index 5805cdb3..f4e20533 100644
 --- a/runtime/spu/spu_lifted_thread.h
 +++ b/runtime/spu/spu_lifted_thread.h
 @@ -32,8 +32,11 @@ typedef struct spu_lifted_thread_desc {
@@ -40074,7 +40191,7 @@ index 5805cdb..f4e2053 100644
  
  /* How the thread stopped, in the terms the group state machine needs. */
 diff --git a/runtime/spu/spu_lockstep.c b/runtime/spu/spu_lockstep.c
-index 22f2e29..a8df2d4 100644
+index 22f2e29d..a8df2d49 100644
 --- a/runtime/spu/spu_lockstep.c
 +++ b/runtime/spu/spu_lockstep.c
 @@ -81,7 +81,7 @@ static unsigned long long  s_pass_count = 0;
@@ -40140,7 +40257,7 @@ index 22f2e29..a8df2d4 100644
      int idx = ls_find_slot(ctx);
      if (idx >= 0) {
 diff --git a/runtime/spu/spu_raw.c b/runtime/spu/spu_raw.c
-index f6dc8be..fe74944 100644
+index f6dc8bef..fe74944d 100644
 --- a/runtime/spu/spu_raw.c
 +++ b/runtime/spu/spu_raw.c
 @@ -99,7 +99,7 @@ static raw_spu s_spu[SPU_RAW_COUNT];
@@ -40232,7 +40349,7 @@ index f6dc8be..fe74944 100644
                n, (unsigned long long)ctx->gpr[4], (unsigned long long)ctx->gpr[5]); }
      return CELL_OK;
 diff --git a/runtime/spu/spu_workload.c b/runtime/spu/spu_workload.c
-index 2a8dca1..a26fd9e 100644
+index 2a8dca10..a26fd9e8 100644
 --- a/runtime/spu/spu_workload.c
 +++ b/runtime/spu/spu_workload.c
 @@ -5,9 +5,11 @@
@@ -40875,7 +40992,7 @@ index 2a8dca1..a26fd9e 100644
 +    return spu_task_dispatch_claimed(taskset_ea, taskid, image, image_size, context_ea);
 +}
 diff --git a/runtime/spu/spu_workload.h b/runtime/spu/spu_workload.h
-index b0b913c..e6f546e 100644
+index b0b913c2..e6f546e3 100644
 --- a/runtime/spu/spu_workload.h
 +++ b/runtime/spu/spu_workload.h
 @@ -55,6 +55,9 @@ void spu_workload_register_img(uint64_t fingerprint, spu_lifted_entry_fn fn,
@@ -40986,7 +41103,7 @@ index b0b913c..e6f546e 100644
  }
  #endif
 diff --git a/runtime/spu/spurs_job.c b/runtime/spu/spurs_job.c
-index 9e58833..ed19a8f 100644
+index 9e588334..ed19a8f2 100644
 --- a/runtime/spu/spurs_job.c
 +++ b/runtime/spu/spurs_job.c
 @@ -146,21 +146,80 @@ SPURS_JOB_TLS uint32_t g_spurs_job_mbox, g_spurs_job_mbox_intr;
@@ -41413,7 +41530,7 @@ index 9e58833..ed19a8f 100644
      return 0;
  }
 diff --git a/runtime/spu/spurs_policy.c b/runtime/spu/spurs_policy.c
-index 4f82063..d07c13a 100644
+index 4f820630..d07c13ab 100644
 --- a/runtime/spu/spurs_policy.c
 +++ b/runtime/spu/spurs_policy.c
 @@ -1,26 +1,17 @@
@@ -42043,7 +42160,7 @@ index 4f82063..d07c13a 100644
  }
 diff --git a/runtime/spu/tests/build_diff_test.sh b/runtime/spu/tests/build_diff_test.sh
 new file mode 100755
-index 0000000..1770235
+index 00000000..17702353
 --- /dev/null
 +++ b/runtime/spu/tests/build_diff_test.sh
 @@ -0,0 +1,38 @@
@@ -42087,7 +42204,7 @@ index 0000000..1770235
 +fi
 diff --git a/runtime/spu/tests/build_selftest.sh b/runtime/spu/tests/build_selftest.sh
 new file mode 100755
-index 0000000..a3a3c03
+index 00000000..a3a3c033
 --- /dev/null
 +++ b/runtime/spu/tests/build_selftest.sh
 @@ -0,0 +1,11 @@
@@ -42104,7 +42221,7 @@ index 0000000..a3a3c03
 +"$HERE/spu_interp_selftest.exe"
 diff --git a/runtime/spu/tests/gen_lifted_cases.py b/runtime/spu/tests/gen_lifted_cases.py
 new file mode 100644
-index 0000000..a5a17b1
+index 00000000..a5a17b1a
 --- /dev/null
 +++ b/runtime/spu/tests/gen_lifted_cases.py
 @@ -0,0 +1,48 @@
@@ -42158,7 +42275,7 @@ index 0000000..a5a17b1
 +print(f"#define LC_NCASES {len(fns)}")
 diff --git a/runtime/spu/tests/gen_test_loop_bounds.py b/runtime/spu/tests/gen_test_loop_bounds.py
 new file mode 100644
-index 0000000..e4eab1d
+index 00000000..e4eab1d4
 --- /dev/null
 +++ b/runtime/spu/tests/gen_test_loop_bounds.py
 @@ -0,0 +1,119 @@
@@ -42282,7 +42399,7 @@ index 0000000..e4eab1d
 +open(os.path.join(HERE, "test_loop_bounds.elf"), "wb").write(elf)
 +print(f"Wrote test_loop_bounds.elf ({len(prog)} code, head@{HEAD:#x} body@{BODY:#x} exit@{EXIT:#x})")
 diff --git a/runtime/spu/tests/out_adapter/spu_recomp.h b/runtime/spu/tests/out_adapter/spu_recomp.h
-index c63d274..43e5270 100644
+index c63d2743..43e5270e 100644
 --- a/runtime/spu/tests/out_adapter/spu_recomp.h
 +++ b/runtime/spu/tests/out_adapter/spu_recomp.h
 @@ -27,7 +27,7 @@ extern "C" {
@@ -42295,7 +42412,7 @@ index c63d274..43e5270 100644
   * through SPU_IB_DISPATCH so the choice is a compile-time switch. */
  void spu_indirect_branch(spu_context* ctx);
 diff --git a/runtime/spu/tests/out_bringup/spu_recomp.h b/runtime/spu/tests/out_bringup/spu_recomp.h
-index c63d274..43e5270 100644
+index c63d2743..43e5270e 100644
 --- a/runtime/spu/tests/out_bringup/spu_recomp.h
 +++ b/runtime/spu/tests/out_bringup/spu_recomp.h
 @@ -27,7 +27,7 @@ extern "C" {
@@ -42308,7 +42425,7 @@ index c63d274..43e5270 100644
   * through SPU_IB_DISPATCH so the choice is a compile-time switch. */
  void spu_indirect_branch(spu_context* ctx);
 diff --git a/runtime/spu/tests/out_brsl_return/spu_recomp.c b/runtime/spu/tests/out_brsl_return/spu_recomp.c
-index 3b4fee4..a5d5dd2 100644
+index 3b4fee4c..a5d5dd22 100644
 --- a/runtime/spu/tests/out_brsl_return/spu_recomp.c
 +++ b/runtime/spu/tests/out_brsl_return/spu_recomp.c
 @@ -5,7 +5,7 @@
@@ -42330,7 +42447,7 @@ index 3b4fee4..a5d5dd2 100644
  
  /* Function table */
 diff --git a/runtime/spu/tests/out_brsl_return/spu_recomp.h b/runtime/spu/tests/out_brsl_return/spu_recomp.h
-index 040d1a6..1eb6360 100644
+index 040d1a63..1eb6360e 100644
 --- a/runtime/spu/tests/out_brsl_return/spu_recomp.h
 +++ b/runtime/spu/tests/out_brsl_return/spu_recomp.h
 @@ -27,7 +27,7 @@ extern "C" {
@@ -42343,7 +42460,7 @@ index 040d1a6..1eb6360 100644
   * through SPU_IB_DISPATCH so the choice is a compile-time switch. */
  void spu_indirect_branch(spu_context* ctx);
 diff --git a/runtime/spu/tests/out_dma/spu_recomp.h b/runtime/spu/tests/out_dma/spu_recomp.h
-index c63d274..43e5270 100644
+index c63d2743..43e5270e 100644
 --- a/runtime/spu/tests/out_dma/spu_recomp.h
 +++ b/runtime/spu/tests/out_dma/spu_recomp.h
 @@ -27,7 +27,7 @@ extern "C" {
@@ -42356,7 +42473,7 @@ index c63d274..43e5270 100644
   * through SPU_IB_DISPATCH so the choice is a compile-time switch. */
  void spu_indirect_branch(spu_context* ctx);
 diff --git a/runtime/spu/tests/out_event/spu_recomp.h b/runtime/spu/tests/out_event/spu_recomp.h
-index c63d274..43e5270 100644
+index c63d2743..43e5270e 100644
 --- a/runtime/spu/tests/out_event/spu_recomp.h
 +++ b/runtime/spu/tests/out_event/spu_recomp.h
 @@ -27,7 +27,7 @@ extern "C" {
@@ -42369,7 +42486,7 @@ index c63d274..43e5270 100644
   * through SPU_IB_DISPATCH so the choice is a compile-time switch. */
  void spu_indirect_branch(spu_context* ctx);
 diff --git a/runtime/spu/tests/out_lfqueue/spu_recomp.h b/runtime/spu/tests/out_lfqueue/spu_recomp.h
-index c63d274..43e5270 100644
+index c63d2743..43e5270e 100644
 --- a/runtime/spu/tests/out_lfqueue/spu_recomp.h
 +++ b/runtime/spu/tests/out_lfqueue/spu_recomp.h
 @@ -27,7 +27,7 @@ extern "C" {
@@ -42383,7 +42500,7 @@ index c63d274..43e5270 100644
  void spu_indirect_branch(spu_context* ctx);
 diff --git a/runtime/spu/tests/out_loop_bounds/spu_recomp.c b/runtime/spu/tests/out_loop_bounds/spu_recomp.c
 new file mode 100644
-index 0000000..881d22c
+index 00000000..881d22cb
 --- /dev/null
 +++ b/runtime/spu/tests/out_loop_bounds/spu_recomp.c
 @@ -0,0 +1,78 @@
@@ -42467,7 +42584,7 @@ index 0000000..881d22c
 +}
 diff --git a/runtime/spu/tests/out_loop_bounds/spu_recomp.h b/runtime/spu/tests/out_loop_bounds/spu_recomp.h
 new file mode 100644
-index 0000000..898dec8
+index 00000000..898dec87
 --- /dev/null
 +++ b/runtime/spu/tests/out_loop_bounds/spu_recomp.h
 @@ -0,0 +1,74 @@
@@ -42546,7 +42663,7 @@ index 0000000..898dec8
 + * indirect-branch dispatch (spu_indirect_branch). */
 +void spu_recomp_register(void);
 diff --git a/runtime/spu/tests/out_shufb/spu_recomp.h b/runtime/spu/tests/out_shufb/spu_recomp.h
-index c63d274..43e5270 100644
+index c63d2743..43e5270e 100644
 --- a/runtime/spu/tests/out_shufb/spu_recomp.h
 +++ b/runtime/spu/tests/out_shufb/spu_recomp.h
 @@ -27,7 +27,7 @@ extern "C" {
@@ -42559,7 +42676,7 @@ index c63d274..43e5270 100644
   * through SPU_IB_DISPATCH so the choice is a compile-time switch. */
  void spu_indirect_branch(spu_context* ctx);
 diff --git a/runtime/spu/tests/out_sum/spu_recomp.h b/runtime/spu/tests/out_sum/spu_recomp.h
-index c63d274..43e5270 100644
+index c63d2743..43e5270e 100644
 --- a/runtime/spu/tests/out_sum/spu_recomp.h
 +++ b/runtime/spu/tests/out_sum/spu_recomp.h
 @@ -27,7 +27,7 @@ extern "C" {
@@ -42572,7 +42689,7 @@ index c63d274..43e5270 100644
   * through SPU_IB_DISPATCH so the choice is a compile-time switch. */
  void spu_indirect_branch(spu_context* ctx);
 diff --git a/runtime/spu/tests/out_taskset/spu_recomp.h b/runtime/spu/tests/out_taskset/spu_recomp.h
-index c63d274..43e5270 100644
+index c63d2743..43e5270e 100644
 --- a/runtime/spu/tests/out_taskset/spu_recomp.h
 +++ b/runtime/spu/tests/out_taskset/spu_recomp.h
 @@ -27,7 +27,7 @@ extern "C" {
@@ -42585,7 +42702,7 @@ index c63d274..43e5270 100644
   * through SPU_IB_DISPATCH so the choice is a compile-time switch. */
  void spu_indirect_branch(spu_context* ctx);
 diff --git a/runtime/spu/tests/out_workload/spu_recomp.h b/runtime/spu/tests/out_workload/spu_recomp.h
-index c63d274..43e5270 100644
+index c63d2743..43e5270e 100644
 --- a/runtime/spu/tests/out_workload/spu_recomp.h
 +++ b/runtime/spu/tests/out_workload/spu_recomp.h
 @@ -27,7 +27,7 @@ extern "C" {
@@ -42599,7 +42716,7 @@ index c63d274..43e5270 100644
  void spu_indirect_branch(spu_context* ctx);
 diff --git a/runtime/spu/tests/rpcs3_oracle/extract.py b/runtime/spu/tests/rpcs3_oracle/extract.py
 new file mode 100644
-index 0000000..3120366
+index 00000000..31203661
 --- /dev/null
 +++ b/runtime/spu/tests/rpcs3_oracle/extract.py
 @@ -0,0 +1,101 @@
@@ -42706,7 +42823,7 @@ index 0000000..3120366
 +open(out, "w", encoding="utf-8").write(hdr + luts + "\n" + imm + "\n" + src + "\n" + dispatch)
 diff --git a/runtime/spu/tests/rpcs3_oracle/oracle.h b/runtime/spu/tests/rpcs3_oracle/oracle.h
 new file mode 100644
-index 0000000..bdf6c50
+index 00000000..bdf6c50a
 --- /dev/null
 +++ b/runtime/spu/tests/rpcs3_oracle/oracle.h
 @@ -0,0 +1,24 @@
@@ -42736,7 +42853,7 @@ index 0000000..bdf6c50
 +#endif
 diff --git a/runtime/spu/tests/rpcs3_oracle/oracle_run.inc b/runtime/spu/tests/rpcs3_oracle/oracle_run.inc
 new file mode 100644
-index 0000000..f14ad6d
+index 00000000..f14ad6db
 --- /dev/null
 +++ b/runtime/spu/tests/rpcs3_oracle/oracle_run.inc
 @@ -0,0 +1,38 @@
@@ -42780,7 +42897,7 @@ index 0000000..f14ad6d
 +}
 diff --git a/runtime/spu/tests/rpcs3_oracle/shim/oracle_shim.h b/runtime/spu/tests/rpcs3_oracle/shim/oracle_shim.h
 new file mode 100644
-index 0000000..109d908
+index 00000000..109d9089
 --- /dev/null
 +++ b/runtime/spu/tests/rpcs3_oracle/shim/oracle_shim.h
 @@ -0,0 +1,94 @@
@@ -42879,7 +42996,7 @@ index 0000000..109d908
 +	return r;
 +}
 diff --git a/runtime/spu/tests/run_tests.sh b/runtime/spu/tests/run_tests.sh
-index ca9051b..71bc72b 100644
+index ca9051b7..71bc72be 100644
 --- a/runtime/spu/tests/run_tests.sh
 +++ b/runtime/spu/tests/run_tests.sh
 @@ -34,8 +34,8 @@ for gen in "$HERE"/gen_test_*.py; do
@@ -42895,7 +43012,7 @@ index ca9051b..71bc72b 100644
      # Optional per-test extra build args (extra sources / -I dirs). A
 diff --git a/runtime/spu/tests/spu_float_referee.py b/runtime/spu/tests/spu_float_referee.py
 new file mode 100644
-index 0000000..2159e11
+index 00000000..2159e117
 --- /dev/null
 +++ b/runtime/spu/tests/spu_float_referee.py
 @@ -0,0 +1,127 @@
@@ -43028,7 +43145,7 @@ index 0000000..2159e11
 +    main()
 diff --git a/runtime/spu/tests/spu_interp_diff_test.c b/runtime/spu/tests/spu_interp_diff_test.c
 new file mode 100644
-index 0000000..f98ec72
+index 00000000..f98ec72a
 --- /dev/null
 +++ b/runtime/spu/tests/spu_interp_diff_test.c
 @@ -0,0 +1,784 @@
@@ -43817,7 +43934,7 @@ index 0000000..f98ec72
 +    return okk ? 0 : 1;
 +}
 diff --git a/runtime/spu/tests/spu_interp_selftest.c b/runtime/spu/tests/spu_interp_selftest.c
-index 21bc39e..7b5912f 100644
+index 21bc39e7..7b5912f6 100644
 --- a/runtime/spu/tests/spu_interp_selftest.c
 +++ b/runtime/spu/tests/spu_interp_selftest.c
 @@ -1,3 +1,4 @@
@@ -44226,7 +44343,7 @@ index 21bc39e..7b5912f 100644
  }
 diff --git a/runtime/spu/tests/test_loop_bounds_main.c b/runtime/spu/tests/test_loop_bounds_main.c
 new file mode 100644
-index 0000000..0e3bd9b
+index 00000000..0e3bd9b9
 --- /dev/null
 +++ b/runtime/spu/tests/test_loop_bounds_main.c
 @@ -0,0 +1,260 @@
@@ -44491,7 +44608,7 @@ index 0000000..0e3bd9b
 +    return g_fail ? 1 : 0;
 +}
 diff --git a/runtime/spu/tests/test_spu_coherency.c b/runtime/spu/tests/test_spu_coherency.c
-index b28e28e..44b64db 100644
+index b28e28ea..44b64db8 100644
 --- a/runtime/spu/tests/test_spu_coherency.c
 +++ b/runtime/spu/tests/test_spu_coherency.c
 @@ -29,13 +29,17 @@
@@ -44727,7 +44844,7 @@ index b28e28e..44b64db 100644
             g_pass, g_fail);
 diff --git a/runtime/spu/tests/test_spu_float_neon.c b/runtime/spu/tests/test_spu_float_neon.c
 new file mode 100644
-index 0000000..b03c726
+index 00000000..b03c7260
 --- /dev/null
 +++ b/runtime/spu/tests/test_spu_float_neon.c
 @@ -0,0 +1,271 @@
@@ -45004,7 +45121,7 @@ index 0000000..b03c726
 +}
 diff --git a/runtime/spu/tests/test_spu_int_neon.c b/runtime/spu/tests/test_spu_int_neon.c
 new file mode 100644
-index 0000000..22ea98a
+index 00000000..22ea98aa
 --- /dev/null
 +++ b/runtime/spu/tests/test_spu_int_neon.c
 @@ -0,0 +1,107 @@
@@ -45116,7 +45233,7 @@ index 0000000..22ea98a
 +#endif
 +}
 diff --git a/runtime/spu/tests/test_spu_lifted_start.c b/runtime/spu/tests/test_spu_lifted_start.c
-index 649f28f..203cfe0 100644
+index 649f28f2..203cfe05 100644
 --- a/runtime/spu/tests/test_spu_lifted_start.c
 +++ b/runtime/spu/tests/test_spu_lifted_start.c
 @@ -599,7 +599,7 @@ static void test_user_event_ports(uint32_t gid, uint32_t tid)
@@ -45156,7 +45273,7 @@ index 649f28f..203cfe0 100644
  void sys_rsx_init(lv2_syscall_table* t) { (void)t; }
  void spu_raw_note_image(uint32_t ea, uint32_t src) { (void)ea; (void)src; }
 diff --git a/runtime/spu/tests/test_spu_lockline_peer.c b/runtime/spu/tests/test_spu_lockline_peer.c
-index 4bf0869..1105a83 100644
+index 4bf08693..1105a830 100644
 --- a/runtime/spu/tests/test_spu_lockline_peer.c
 +++ b/runtime/spu/tests/test_spu_lockline_peer.c
 @@ -53,7 +53,8 @@
@@ -45371,7 +45488,7 @@ index 4bf0869..1105a83 100644
  
  /* ===========================================================================
 diff --git a/runtime/spu/tests/test_spu_shufb.c b/runtime/spu/tests/test_spu_shufb.c
-index 98fa95f..195c75e 100644
+index 98fa95f7..195c75e3 100644
 --- a/runtime/spu/tests/test_spu_shufb.c
 +++ b/runtime/spu/tests/test_spu_shufb.c
 @@ -1,14 +1,15 @@
@@ -45396,7 +45513,7 @@ index 98fa95f..195c75e 100644
  #else
      srand(12345);
 diff --git a/runtime/spu/tests/test_workload_image.h b/runtime/spu/tests/test_workload_image.h
-index 1274c37..75198f8 100644
+index 1274c378..75198f86 100644
 --- a/runtime/spu/tests/test_workload_image.h
 +++ b/runtime/spu/tests/test_workload_image.h
 @@ -1,4 +1,4 @@
@@ -45407,7 +45524,7 @@ index 1274c37..75198f8 100644
  #define kWorkloadElfSize 512u
 diff --git a/runtime/syscalls/lv2_prx.c b/runtime/syscalls/lv2_prx.c
 new file mode 100644
-index 0000000..5bdf0f7
+index 00000000..5bdf0f7f
 --- /dev/null
 +++ b/runtime/syscalls/lv2_prx.c
 @@ -0,0 +1,447 @@
@@ -45859,7 +45976,7 @@ index 0000000..5bdf0f7
 +    lv2_syscall_register(tbl, 497, sys_prx_load_module_on_memcontainer);
 +}
 diff --git a/runtime/syscalls/lv2_register.c b/runtime/syscalls/lv2_register.c
-index bcb1df4..a6839f9 100644
+index bcb1df42..a6839f90 100644
 --- a/runtime/syscalls/lv2_register.c
 +++ b/runtime/syscalls/lv2_register.c
 @@ -10,6 +10,7 @@
@@ -48012,7 +48129,7 @@ index bcb1df4..a6839f9 100644
  }
 diff --git a/runtime/syscalls/lv2_spu_image.c b/runtime/syscalls/lv2_spu_image.c
 new file mode 100644
-index 0000000..51b1d0a
+index 00000000..51b1d0a6
 --- /dev/null
 +++ b/runtime/syscalls/lv2_spu_image.c
 @@ -0,0 +1,208 @@
@@ -48226,7 +48343,7 @@ index 0000000..51b1d0a
 +}
 diff --git a/runtime/syscalls/lv2_spu_image.h b/runtime/syscalls/lv2_spu_image.h
 new file mode 100644
-index 0000000..e4f3725
+index 00000000..e4f37253
 --- /dev/null
 +++ b/runtime/syscalls/lv2_spu_image.h
 @@ -0,0 +1,63 @@
@@ -48294,7 +48411,7 @@ index 0000000..e4f3725
 +
 +#endif
 diff --git a/runtime/syscalls/lv2_syscall_table.h b/runtime/syscalls/lv2_syscall_table.h
-index a274395..5dd69eb 100644
+index a274395b..5dd69eba 100644
 --- a/runtime/syscalls/lv2_syscall_table.h
 +++ b/runtime/syscalls/lv2_syscall_table.h
 @@ -46,8 +46,9 @@ extern "C" {
@@ -48327,7 +48444,7 @@ index a274395..5dd69eb 100644
  #define SYS_TIME_GET_TIMEBASE_FREQUENCY 147
  
 diff --git a/runtime/syscalls/sys_cond.c b/runtime/syscalls/sys_cond.c
-index 45235ea..3661d02 100644
+index 45235ea6..3661d023 100644
 --- a/runtime/syscalls/sys_cond.c
 +++ b/runtime/syscalls/sys_cond.c
 @@ -143,16 +143,16 @@ int64_t sys_cond_wait(ppu_context* ctx)
@@ -48363,7 +48480,7 @@ index 45235ea..3661d02 100644
  }
  
 diff --git a/runtime/syscalls/sys_event.c b/runtime/syscalls/sys_event.c
-index 4240edf..2d6be03 100644
+index 4240edf2..2d6be030 100644
 --- a/runtime/syscalls/sys_event.c
 +++ b/runtime/syscalls/sys_event.c
 @@ -283,9 +283,9 @@ void sys_event_queue_cancel_by_id(uint32_t queue_id)
@@ -48643,7 +48760,7 @@ index 4240edf..2d6be03 100644
  
      if (flag_id == 0 || flag_id > SYS_EVENT_FLAG_MAX)
 diff --git a/runtime/syscalls/sys_fs.c b/runtime/syscalls/sys_fs.c
-index 489f8a5..3e6fd76 100644
+index 489f8a5a..3e6fd76d 100644
 --- a/runtime/syscalls/sys_fs.c
 +++ b/runtime/syscalls/sys_fs.c
 @@ -2,6 +2,7 @@
@@ -48704,7 +48821,7 @@ index 489f8a5..3e6fd76 100644
        if (s_ft) { static unsigned long fn;
 diff --git a/runtime/syscalls/sys_lwsync.c b/runtime/syscalls/sys_lwsync.c
 new file mode 100644
-index 0000000..f55cfa5
+index 00000000..f55cfa50
 --- /dev/null
 +++ b/runtime/syscalls/sys_lwsync.c
 @@ -0,0 +1,425 @@
@@ -49134,7 +49251,7 @@ index 0000000..f55cfa5
 +    lv2_syscall_register(tbl, 116, sys_lwcond_signal_all);
 +}
 diff --git a/runtime/syscalls/sys_memory.c b/runtime/syscalls/sys_memory.c
-index bfbaac5..a5c0d35 100644
+index bfbaac50..a5c0d358 100644
 --- a/runtime/syscalls/sys_memory.c
 +++ b/runtime/syscalls/sys_memory.c
 @@ -1,3 +1,4 @@
@@ -49197,7 +49314,7 @@ index bfbaac5..a5c0d35 100644
                  size, addr); }
  
 diff --git a/runtime/syscalls/sys_mutex.c b/runtime/syscalls/sys_mutex.c
-index 2e760ea..a8906eb 100644
+index 2e760ea5..a8906eb1 100644
 --- a/runtime/syscalls/sys_mutex.c
 +++ b/runtime/syscalls/sys_mutex.c
 @@ -191,7 +191,7 @@ int64_t sys_mutex_lock(ppu_context* ctx)
@@ -49293,7 +49410,7 @@ index 2e760ea..a8906eb 100644
  
  #ifdef _WIN32
 diff --git a/runtime/syscalls/sys_ppu_thread.c b/runtime/syscalls/sys_ppu_thread.c
-index fb3906a..63ddace 100644
+index fb3906ae..63ddace1 100644
 --- a/runtime/syscalls/sys_ppu_thread.c
 +++ b/runtime/syscalls/sys_ppu_thread.c
 @@ -16,6 +16,11 @@
@@ -49791,7 +49908,7 @@ index fb3906a..63ddace 100644
      lv2_syscall_register(tbl, SYS_PPU_THREAD_YIELD,               sys_ppu_thread_yield);
      lv2_syscall_register(tbl, SYS_PPU_THREAD_JOIN,                sys_ppu_thread_join);
 diff --git a/runtime/syscalls/sys_ppu_thread.h b/runtime/syscalls/sys_ppu_thread.h
-index a297bf5..3de04e9 100644
+index a297bf5c..3de04e98 100644
 --- a/runtime/syscalls/sys_ppu_thread.h
 +++ b/runtime/syscalls/sys_ppu_thread.h
 @@ -51,7 +51,9 @@ typedef struct ppu_thread_info {
@@ -49806,7 +49923,7 @@ index a297bf5..3de04e9 100644
  #ifdef _WIN32
      HANDLE       host_thread;
 diff --git a/runtime/syscalls/sys_semaphore.c b/runtime/syscalls/sys_semaphore.c
-index 19ecafc..aa0e859 100644
+index 19ecafc8..aa0e8595 100644
 --- a/runtime/syscalls/sys_semaphore.c
 +++ b/runtime/syscalls/sys_semaphore.c
 @@ -196,10 +196,10 @@ void lbp_unstick_once(void)
@@ -49921,7 +50038,7 @@ index 19ecafc..aa0e859 100644
                      sem_id, s->value, count, s->max_value); }
          LeaveCriticalSection(&s->value_lock);
 diff --git a/runtime/syscalls/sys_timer.c b/runtime/syscalls/sys_timer.c
-index d8f4081..21f7eda 100644
+index d8f40814..21f7eda1 100644
 --- a/runtime/syscalls/sys_timer.c
 +++ b/runtime/syscalls/sys_timer.c
 @@ -2,12 +2,20 @@
@@ -50144,7 +50261,7 @@ index d8f4081..21f7eda 100644
      lv2_syscall_register(tbl, SYS_TIME_GET_CURRENT_TIME,   sys_time_get_current_time);
  }
 diff --git a/runtime/syscalls/sys_timer.h b/runtime/syscalls/sys_timer.h
-index 3588dce..39a0102 100644
+index 3588dcea..39a0102e 100644
 --- a/runtime/syscalls/sys_timer.h
 +++ b/runtime/syscalls/sys_timer.h
 @@ -72,6 +72,7 @@ extern sys_timer_info g_sys_timers[SYS_TIMER_MAX];
@@ -50156,7 +50273,7 @@ index 3588dce..39a0102 100644
  int64_t sys_timer_create(ppu_context* ctx);
  int64_t sys_timer_destroy(ppu_context* ctx);
 diff --git a/templates/project/CMakeLists.txt b/templates/project/CMakeLists.txt
-index 5fca857..2508a4e 100644
+index 5fca8570..2508a4e7 100644
 --- a/templates/project/CMakeLists.txt
 +++ b/templates/project/CMakeLists.txt
 @@ -90,6 +90,9 @@ if(EXISTS "${RECOMP_DIR}/ppu_hle_nids.cpp")
@@ -50219,7 +50336,7 @@ index 5fca857..2508a4e 100644
  elseif(MSVC)
      target_compile_options(${PROJECT_NAME} PRIVATE
 diff --git a/templates/project/main.cpp b/templates/project/main.cpp
-index 6632ac1..7111953 100644
+index 6632ac1f..7111953e 100644
 --- a/templates/project/main.cpp
 +++ b/templates/project/main.cpp
 @@ -38,6 +38,8 @@
@@ -50386,7 +50503,7 @@ index 6632ac1..7111953 100644
  
 diff --git a/tests/bench/spu/.gitignore b/tests/bench/spu/.gitignore
 new file mode 100644
-index 0000000..ea93687
+index 00000000..ea93687f
 --- /dev/null
 +++ b/tests/bench/spu/.gitignore
 @@ -0,0 +1,2 @@
@@ -50394,7 +50511,7 @@ index 0000000..ea93687
 +__pycache__/
 diff --git a/tests/bench/spu/README.md b/tests/bench/spu/README.md
 new file mode 100644
-index 0000000..ee84929
+index 00000000..ee849293
 --- /dev/null
 +++ b/tests/bench/spu/README.md
 @@ -0,0 +1,66 @@
@@ -50466,7 +50583,7 @@ index 0000000..ee84929
 +helper optimisation, on an M1 Pro with the machine otherwise loaded.
 diff --git a/tests/bench/spu/apply_barriers.py b/tests/bench/spu/apply_barriers.py
 new file mode 100755
-index 0000000..6a52f77
+index 00000000..6a52f773
 --- /dev/null
 +++ b/tests/bench/spu/apply_barriers.py
 @@ -0,0 +1,46 @@
@@ -50518,7 +50635,7 @@ index 0000000..6a52f77
 +main()
 diff --git a/tests/bench/spu/bench_barrier.h b/tests/bench/spu/bench_barrier.h
 new file mode 100644
-index 0000000..fd9af94
+index 00000000..fd9af946
 --- /dev/null
 +++ b/tests/bench/spu/bench_barrier.h
 @@ -0,0 +1,47 @@
@@ -50571,7 +50688,7 @@ index 0000000..fd9af94
 +#endif
 diff --git a/tests/bench/spu/gen_spu_bench.py b/tests/bench/spu/gen_spu_bench.py
 new file mode 100755
-index 0000000..9f4b5c2
+index 00000000..9f4b5c28
 --- /dev/null
 +++ b/tests/bench/spu/gen_spu_bench.py
 @@ -0,0 +1,495 @@
@@ -51072,7 +51189,7 @@ index 0000000..9f4b5c2
 +    main()
 diff --git a/tests/bench/spu/results/2026-10-06-m1pro-baseline.csv b/tests/bench/spu/results/2026-10-06-m1pro-baseline.csv
 new file mode 100644
-index 0000000..7e18762
+index 00000000..7e187622
 --- /dev/null
 +++ b/tests/bench/spu/results/2026-10-06-m1pro-baseline.csv
 @@ -0,0 +1,412 @@
@@ -51490,7 +51607,7 @@ index 0000000..7e18762
 +atomic,issue,"PUTLLUC + atomic stat",2.11191e+07,47.3506,9.89505e+06,101.061
 diff --git a/tests/bench/spu/results/2026-10-06-m1pro-baseline.txt b/tests/bench/spu/results/2026-10-06-m1pro-baseline.txt
 new file mode 100644
-index 0000000..8f5212a
+index 00000000..8f5212aa
 --- /dev/null
 +++ b/tests/bench/spu/results/2026-10-06-m1pro-baseline.txt
 @@ -0,0 +1,415 @@
@@ -51911,7 +52028,7 @@ index 0000000..8f5212a
 +atomic    issue         PUTLLUC + atomic stat              21.12 M    47.351        9.90 M    101.06       2x
 diff --git a/tests/bench/spu/run_spu_bench.sh b/tests/bench/spu/run_spu_bench.sh
 new file mode 100755
-index 0000000..37545ec
+index 00000000..37545ecc
 --- /dev/null
 +++ b/tests/bench/spu/run_spu_bench.sh
 @@ -0,0 +1,36 @@
@@ -51953,7 +52070,7 @@ index 0000000..37545ec
 +"$OUT/spu_bench" "$@"
 diff --git a/tests/bench/spu/spu_bench_main.c b/tests/bench/spu/spu_bench_main.c
 new file mode 100644
-index 0000000..b2d353d
+index 00000000..b2d353dd
 --- /dev/null
 +++ b/tests/bench/spu/spu_bench_main.c
 @@ -0,0 +1,220 @@
@@ -52178,7 +52295,7 @@ index 0000000..b2d353d
 +    return halted ? 1 : 0;
 +}
 diff --git a/tests/fiber_switch/CMakeLists.txt b/tests/fiber_switch/CMakeLists.txt
-index 8041c95..dd810aa 100644
+index 8041c955..dd810aa1 100644
 --- a/tests/fiber_switch/CMakeLists.txt
 +++ b/tests/fiber_switch/CMakeLists.txt
 @@ -27,6 +27,7 @@ endif()
@@ -52191,7 +52308,7 @@ index 8041c95..dd810aa 100644
  
 diff --git a/tests/fiber_switch/test_shims.c b/tests/fiber_switch/test_shims.c
 new file mode 100644
-index 0000000..64ae1e8
+index 00000000..64ae1e87
 --- /dev/null
 +++ b/tests/fiber_switch/test_shims.c
 @@ -0,0 +1,12 @@
@@ -52208,7 +52325,7 @@ index 0000000..64ae1e8
 +void     spu_lockline_unlock_mask(uint64_t mask)            { (void)mask; }
 +void     spu_coh_notify_write_from_ppu(uint32_t ea)         { (void)ea; }
 diff --git a/tests/sync_stress/test_shims.c b/tests/sync_stress/test_shims.c
-index 0638d9b..9128ae9 100644
+index 0638d9be..9128ae93 100644
 --- a/tests/sync_stress/test_shims.c
 +++ b/tests/sync_stress/test_shims.c
 @@ -53,5 +53,5 @@ int spu_dispatch_frame_by_queue(uint32_t comp_queue, uint32_t work_ea)
@@ -52220,7 +52337,7 @@ index 0638d9b..9128ae9 100644
 +__thread uint32_t g_spu_pending_evt[3];
 +__thread int      g_spu_pending_evt_valid;
 diff --git a/tools/build_spu_workloads.py b/tools/build_spu_workloads.py
-index c4b34d1..5940ea2 100644
+index c4b34d15..5940ea2e 100644
 --- a/tools/build_spu_workloads.py
 +++ b/tools/build_spu_workloads.py
 @@ -54,6 +54,40 @@ def img_size(b):
@@ -52350,7 +52467,7 @@ index c4b34d1..5940ea2 100644
      L.append("}")
      if args.constructor:
 diff --git a/tools/callgraph.py b/tools/callgraph.py
-index 995f742..37b195b 100644
+index 995f7422..37b195ba 100644
 --- a/tools/callgraph.py
 +++ b/tools/callgraph.py
 @@ -16,7 +16,7 @@ indirect call the runtime is not making. This tells the two apart.
@@ -52363,7 +52480,7 @@ index 995f742..37b195b 100644
  TRAMP = re.compile(r'g_trampoline_fn\s*=\s*\(void\(\*\)\(void\*\)\)(func_[0-9A-Fa-f]+)')
  
 diff --git a/tools/extract_jobmods.py b/tools/extract_jobmods.py
-index 8be8dc2..8e2e77a 100644
+index 8be8dc27..8e2e77a4 100644
 --- a/tools/extract_jobmods.py
 +++ b/tools/extract_jobmods.py
 @@ -1,6 +1,7 @@
@@ -52453,7 +52570,7 @@ index 8be8dc2..8e2e77a 100644
          if not os.path.exists(path):
              print(f"  MISSING {path}", file=sys.stderr); continue
 diff --git a/tools/find_spu_functions.py b/tools/find_spu_functions.py
-index 6c1b361..1af4fad 100644
+index 6c1b361c..1af4fadc 100644
 --- a/tools/find_spu_functions.py
 +++ b/tools/find_spu_functions.py
 @@ -546,6 +546,18 @@ _TERMINATORS_NO_FALLTHROUGH = {
@@ -52486,7 +52603,7 @@ index 6c1b361..1af4fad 100644
              return pc + 4
 diff --git a/tools/gen_prx_module.py b/tools/gen_prx_module.py
 new file mode 100644
-index 0000000..5b62556
+index 00000000..5b625560
 --- /dev/null
 +++ b/tools/gen_prx_module.py
 @@ -0,0 +1,104 @@
@@ -52596,7 +52713,7 @@ index 0000000..5b62556
 +    main()
 diff --git a/tools/lift_firmware_module.py b/tools/lift_firmware_module.py
 new file mode 100644
-index 0000000..26e3960
+index 00000000..26e39608
 --- /dev/null
 +++ b/tools/lift_firmware_module.py
 @@ -0,0 +1,81 @@
@@ -52683,7 +52800,7 @@ index 0000000..26e3960
 +    main()
 diff --git a/tools/lift_firmware_spu.py b/tools/lift_firmware_spu.py
 new file mode 100644
-index 0000000..00fe68b
+index 00000000..00fe68b7
 --- /dev/null
 +++ b/tools/lift_firmware_spu.py
 @@ -0,0 +1,226 @@
@@ -52914,7 +53031,7 @@ index 0000000..00fe68b
 +if __name__ == "__main__":
 +    main()
 diff --git a/tools/lift_jobmods.py b/tools/lift_jobmods.py
-index d2e6b07..729cf62 100644
+index d2e6b07e..729cf624 100644
 --- a/tools/lift_jobmods.py
 +++ b/tools/lift_jobmods.py
 @@ -46,7 +46,8 @@ CODE_END = {
@@ -52962,7 +53079,7 @@ index d2e6b07..729cf62 100644
          inside = [a for a in EXTRA_FUNCS if BASE <= int(a, 0) < BASE + len(raw)]
          # The module's first function starts right after the 0x30-byte header
 diff --git a/tools/nid_database.py b/tools/nid_database.py
-index 794abe7..b36b09b 100644
+index 794abe77..b36b09b1 100644
 --- a/tools/nid_database.py
 +++ b/tools/nid_database.py
 @@ -291,6 +291,7 @@ _BUILTIN_FUNCTIONS: list[tuple[str, str]] = [
@@ -52974,7 +53091,7 @@ index 794abe7..b36b09b 100644
      # Sync utilities used with SPURS
      ("cellSpurs", "_cellSpursTasksetAttributeInitialize"),
 diff --git a/tools/ppu_disasm.py b/tools/ppu_disasm.py
-index 67dfd3f..3c68616 100644
+index 67dfd3fd..3c686166 100644
 --- a/tools/ppu_disasm.py
 +++ b/tools/ppu_disasm.py
 @@ -798,6 +798,34 @@ def decode(insn: int, addr: int = 0) -> Instruction:
@@ -53028,7 +53145,7 @@ index 67dfd3f..3c68616 100644
          # Fallback for opcode 4
          result.mnemonic = f"vmx_x{xo_full}"
 diff --git a/tools/ppu_lifter.py b/tools/ppu_lifter.py
-index b19e240..0923d6c 100644
+index b19e2408..0923d6c7 100644
 --- a/tools/ppu_lifter.py
 +++ b/tools/ppu_lifter.py
 @@ -12,6 +12,7 @@ Usage:
@@ -54908,7 +55025,7 @@ index b19e240..0923d6c 100644
  
  if __name__ == "__main__":
 diff --git a/tools/spu_disasm.py b/tools/spu_disasm.py
-index 2630352..9380de3 100644
+index 26303525..9380de35 100644
 --- a/tools/spu_disasm.py
 +++ b/tools/spu_disasm.py
 @@ -146,7 +146,10 @@ RI10_TABLE: dict[int, str] = {
@@ -54923,7 +55040,7 @@ index 2630352..9380de3 100644
      0b01111101: "ceqhi",  # compare equal halfword immediate
      0b01111110: "ceqbi",  # compare equal byte immediate
 diff --git a/tools/spu_lifter.py b/tools/spu_lifter.py
-index bfc9af4..f061179 100644
+index bfc9af4f..f0611790 100644
 --- a/tools/spu_lifter.py
 +++ b/tools/spu_lifter.py
 @@ -193,6 +193,171 @@ def _chan(token: str) -> str:
@@ -55511,7 +55628,7 @@ index bfc9af4..f061179 100644
      os.makedirs(args.output, exist_ok=True)
      hp = os.path.join(args.output, args.header_name)
 diff --git a/tools/test_ppu_branches.py b/tools/test_ppu_branches.py
-index dee03d1..278077d 100644
+index dee03d14..278077dc 100644
 --- a/tools/test_ppu_branches.py
 +++ b/tools/test_ppu_branches.py
 @@ -46,10 +46,13 @@ def main() -> int:
@@ -55531,7 +55648,7 @@ index dee03d1..278077d 100644
      # A chunk that ends on a conditional branch falls through when it is not
      # taken, so it needs the fall-through tail; an unconditional one does not.
 diff --git a/tools/test_ppu_jumptables.py b/tools/test_ppu_jumptables.py
-index 4eef694..5527d6b 100644
+index 4eef6940..5527d6bb 100644
 --- a/tools/test_ppu_jumptables.py
 +++ b/tools/test_ppu_jumptables.py
 @@ -52,6 +52,9 @@ def w_li(rt, si):          return (14 << 26) | (rt << 21) | (si & 0xFFFF)
@@ -55660,7 +55777,7 @@ index 4eef694..5527d6b 100644
      test_const_base_no_table()
      test_const_base_needs_constant()
 diff --git a/tools/test_ppu_lift.py b/tools/test_ppu_lift.py
-index 096fc3a..2c785a4 100644
+index 096fc3a0..2c785a4f 100644
 --- a/tools/test_ppu_lift.py
 +++ b/tools/test_ppu_lift.py
 @@ -929,6 +929,12 @@ extern "C" uint32_t vm_read32(uint64_t a) { uint32_t v; memcpy(&v, g_vm_stub + V
@@ -55678,7 +55795,7 @@ index 096fc3a..2c785a4 100644
      out.append("    ppu_context* ctx = &g_ctx;")
 diff --git a/tools/test_ppu_local_regs.py b/tools/test_ppu_local_regs.py
 new file mode 100755
-index 0000000..0e85d92
+index 00000000..0e85d920
 --- /dev/null
 +++ b/tools/test_ppu_local_regs.py
 @@ -0,0 +1,235 @@
