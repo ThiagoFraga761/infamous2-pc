@@ -83,6 +83,15 @@ echo "log: $LOG"
 export PS3_STALL_MS="${PS3_STALL_MS:-2500}"
 export PS3_STALL_DIR="${PS3_STALL_DIR:-${LOG%.log}-stalls}"
 mkdir -p "$PS3_STALL_DIR"
+# With each stall, the runtime's own state too (fences, job guards and chains,
+# SPURS workloads, event queues and flags, dropped signals), as the stall is
+# seen and again 15 s in, plus the end of this log and a link to the stacks:
+# into work/runs/freezes/<log name>/, made only when a stall comes. Keep that
+# folder out of any clean-up; it is the evidence. PS3_FREEZE_DUMP=0 turns the
+# state off. SPURS_JC_RING=1 adds the job chains' last 2048 steps to it (off
+# here until an A/B on bench_pier.sh shows it costs nothing).
+export PS3_FREEZE_DIR="${PS3_FREEZE_DIR:-$HERE/runs/freezes/$(basename "${LOG%.log}")}"
+export PS3_FREEZE_LOG="${PS3_FREEZE_LOG:-$LOG}"
 # A hang leaves the thread stacks behind: when no "[rsx fps]" line has come
 # for 15 s, eu-stack (elfutils) writes every thread's stack -- lifted guest
 # functions included, as func_<address> -- next to the log, once.
