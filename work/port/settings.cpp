@@ -44,6 +44,10 @@ void port_settings_defaults(port_settings* s)
     s->vsync = 0;
     s->stretch = 0;
     s->display = 0;
+    s->post_aa = 0;
+    s->upscale = 0;
+    s->downscale = 0;
+    s->sharpen = -1;
     snprintf(s->voice, sizeof s->voice, "brazilian");
     snprintf(s->text, sizeof s->text, "brazilian");
     s->fps_limit = 60;
@@ -58,6 +62,36 @@ static std::string trim(const std::string& t)
 {
     size_t a = t.find_first_not_of(" \t\r\n"), b = t.find_last_not_of(" \t\r\n");
     return a == std::string::npos ? std::string() : t.substr(a, b - a + 1);
+}
+
+static const char* const k_aa_names[] = { "off", "fxaa", "smaa" };
+static const char* const k_up_names[] = { "bilinear", "fsr1" };
+static const char* const k_down_names[] = { "bilinear", "area" };
+
+/* One of `names` (its index), else the old value. */
+static void set_name(int* dst, const std::string& v, const char* const* names, int n)
+{
+    for (int i = 0; i < n; i++)
+        if (v == names[i]) { *dst = i; return; }
+}
+
+/* "auto" (-1) or a fraction in [0, 1] (thousandths), else the old value. */
+static void set_sharpen(int* dst, const std::string& v)
+{
+    if (v == "auto") { *dst = -1; return; }
+    char* end = nullptr;
+    errno = 0;
+    const double d = strtod(v.c_str(), &end);
+    if (errno || end == v.c_str() || *end || d < 0.0 || d > 1.0) return;
+    *dst = (int)(d * 1000.0 + 0.5);
+}
+
+static std::string sharpen_text(int v)
+{
+    if (v < 0) return "auto";
+    char b[16];
+    snprintf(b, sizeof b, "%.2f", v / 1000.0);
+    return b;
 }
 
 /* An integer in [lo, hi], else the old value. */
@@ -96,11 +130,15 @@ int port_settings_load(port_settings* s, const char* path)
         const size_t c = v.find_first_of(";#");
         if (c != std::string::npos) v = trim(v.substr(0, c));
         if (section == "video") {
-            if (k == "scale") set_int(&s->scale, v, 1, 3);
+            if (k == "scale") set_int(&s->scale, v, 1, 4);
             else if (k == "fullscreen") set_int(&s->fullscreen, v, 0, 1);
             else if (k == "vsync") set_int(&s->vsync, v, 0, 1);
             else if (k == "stretch") set_int(&s->stretch, v, 0, 1);
             else if (k == "display") set_int(&s->display, v, 0, 15);
+            else if (k == "aa") set_name(&s->post_aa, v, k_aa_names, 3);
+            else if (k == "upscale") set_name(&s->upscale, v, k_up_names, 2);
+            else if (k == "downscale") set_name(&s->downscale, v, k_down_names, 2);
+            else if (k == "sharpen") set_sharpen(&s->sharpen, v);
         } else if (section == "language") {
             if (k == "voice" && voice_known(v.c_str())) snprintf(s->voice, sizeof s->voice, "%s", v.c_str());
             else if (k == "text" && lang_known(v.c_str())) snprintf(s->text, sizeof s->text, "%s", v.c_str());
@@ -136,6 +174,10 @@ int port_settings_save(const port_settings* in, const char* path)
     if (s_pinned & PORT_PIN_RECORD_THREAD) out.record_thread = s_file.record_thread;
     if (s_pinned & PORT_PIN_PARTICLES)     out.fullres_particles = s_file.fullres_particles;
     if (s_pinned & PORT_PIN_ANISO)         out.aniso = s_file.aniso;
+    if (s_pinned & PORT_PIN_POST_AA)       out.post_aa = s_file.post_aa;
+    if (s_pinned & PORT_PIN_UPSCALE)       out.upscale = s_file.upscale;
+    if (s_pinned & PORT_PIN_DOWNSCALE)     out.downscale = s_file.downscale;
+    if (s_pinned & PORT_PIN_SHARPEN)       out.sharpen = s_file.sharpen;
     std::string dir = path;
     const size_t slash = dir.find_last_of("/\\");
     if (slash != std::string::npos) {
@@ -155,11 +197,15 @@ int port_settings_save(const port_settings* in, const char* path)
             "; inFAMOUS 2 port settings. A variable set in the environment wins over\n"
             "; this file. The launcher and the in-game menu (F1) write it.\n"
             "\n[video]\n"
-            "scale = %d          ; 1 = 720p, 2 = 1440p, 3 = 4K\n"
+            "scale = %d          ; 1 = 720p, 2 = 1440p, 3 = 4K, 4 = 5K\n"
             "fullscreen = %d\n"
             "vsync = %d\n"
             "stretch = %d        ; 0 = black bars, 1 = stretch\n"
             "display = %d\n"
+            "aa = %s             ; off, fxaa, smaa\n"
+            "upscale = %s        ; picture smaller than the window: bilinear, fsr1\n"
+            "downscale = %s      ; picture larger than the window: bilinear, area\n"
+            "sharpen = %s        ; auto (0.8 after fsr1), or 0 (off) to 1\n"
             "\n[language]\n"
             "voice = %s\n"
             "text = %s\n"
@@ -174,6 +220,8 @@ int port_settings_save(const port_settings* in, const char* path)
             "aniso = %d             ; 0 = the game's own, 2..16\n"
             "enabled = %s ; mod folders under mods/, in load order (later wins)\n",
             s->scale, s->fullscreen, s->vsync, s->stretch, s->display,
+            k_aa_names[s->post_aa], k_up_names[s->upscale], k_down_names[s->downscale],
+            sharpen_text(s->sharpen).c_str(),
             s->voice, s->text, s->fps_limit, s->fps_counter, s->record_thread,
             s->skip_launcher, s->fullres_particles, s->aniso, s->mods_on);
     const int ok = fclose(f) == 0;
@@ -210,8 +258,12 @@ unsigned port_settings_from_env(port_settings* s)
     const char* v;
     if ((v = getenv("PS3RECOMP_RES_SCALE"))) {
         const int n = atoi(v);
-        if (n >= 1 && n <= 3) { s->scale = n; pin |= PORT_PIN_SCALE; }
+        if (n >= 1 && n <= 4) { s->scale = n; pin |= PORT_PIN_SCALE; }
     }
+    if ((v = getenv("PS3RECOMP_POST_AA")))   { set_name(&s->post_aa, v, k_aa_names, 3); pin |= PORT_PIN_POST_AA; }
+    if ((v = getenv("PS3RECOMP_UPSCALE")))   { set_name(&s->upscale, v, k_up_names, 2); pin |= PORT_PIN_UPSCALE; }
+    if ((v = getenv("PS3RECOMP_DOWNSCALE"))) { set_name(&s->downscale, v, k_down_names, 2); pin |= PORT_PIN_DOWNSCALE; }
+    if ((v = getenv("PS3RECOMP_SHARPEN")))   { set_sharpen(&s->sharpen, v); pin |= PORT_PIN_SHARPEN; }
     if ((v = getenv("PS3RECOMP_VK_FULLSCREEN"))) { s->fullscreen = env_on(v); pin |= PORT_PIN_FULLSCREEN; }
     if ((v = getenv("PS3RECOMP_VK_PRESENT")))    { s->vsync = !strcmp(v, "fifo"); pin |= PORT_PIN_VSYNC; }
     if ((v = getenv("PS3RECOMP_VK_STRETCH")))    { s->stretch = env_on(v); pin |= PORT_PIN_STRETCH; }
@@ -263,6 +315,10 @@ void port_settings_export(const port_settings* s)
     put("PS3RECOMP_VK_FULLSCREEN", s->fullscreen ? "1" : "0");
     put("PS3RECOMP_VK_PRESENT", s->vsync ? "fifo" : "mailbox");
     put("PS3RECOMP_VK_STRETCH", s->stretch ? "1" : "0");
+    put("PS3RECOMP_POST_AA", k_aa_names[s->post_aa]);
+    put("PS3RECOMP_UPSCALE", k_up_names[s->upscale]);
+    put("PS3RECOMP_DOWNSCALE", k_down_names[s->downscale]);
+    put("PS3RECOMP_SHARPEN", sharpen_text(s->sharpen).c_str());
     snprintf(b, sizeof b, "%d", s->display);       put("PS3RECOMP_VK_DISPLAY", b);
     put("PS3_VOICE_LANG", s->voice);
     put("PS3_TEXT_LANG", s->text);

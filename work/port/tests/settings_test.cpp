@@ -57,6 +57,8 @@ int main()
         unsetenv("PS3RECOMP_VK_FULLSCREEN"); unsetenv("PS3RECOMP_VK_PRESENT"); unsetenv("PS3RECOMP_VK_STRETCH");
         unsetenv("PS3RECOMP_VK_DISPLAY"); unsetenv("PS3RECOMP_FPS_LIMIT"); setenv("PS3RECOMP_BE_THREAD", "0", 1);
         unsetenv("PS3RECOMP_FULLRES_PARTICLES"); unsetenv("PS3RECOMP_ANISO");
+        unsetenv("PS3RECOMP_POST_AA"); unsetenv("PS3RECOMP_UPSCALE");
+        unsetenv("PS3RECOMP_DOWNSCALE"); unsetenv("PS3RECOMP_SHARPEN");
         port_settings b;
         CHECK(port_settings_load(&b, p2.c_str()) == 1);
         const unsigned pin = port_settings_from_env(&b);
@@ -133,6 +135,43 @@ int main()
         CHECK(!scale && keep && skip && voice && extra);
         CHECK(getenv("PS3RECOMP_RES_SCALE") != nullptr);      /* this process keeps its own */
         free(env);
+    }
+
+    /* the present chain: names and the sharpening fraction, both ways. Last:
+     * its export leaves variables set that the checks above count. */
+    {
+        const std::string p5 = std::string(dir) + "/post.ini";
+        port_settings a; port_settings_defaults(&a);
+        CHECK(a.post_aa == 0 && a.upscale == 0 && a.downscale == 0 && a.sharpen == -1);
+        a.scale = 4; a.post_aa = 2; a.upscale = 1; a.downscale = 1; a.sharpen = 350;
+        CHECK(port_settings_save(&a, p5.c_str()) == 0);
+        port_settings b;
+        CHECK(port_settings_load(&b, p5.c_str()) == 1);
+        CHECK(!memcmp(&a, &b, sizeof a));
+        FILE* g = fopen(p5.c_str(), "w");
+        fputs("[video]\naa = msaa\nupscale = fsr1\ndownscale = lanczos\nsharpen = 1.5\n", g);
+        fclose(g);
+        CHECK(port_settings_load(&b, p5.c_str()) == 1);
+        CHECK(b.post_aa == 0 && b.upscale == 1 && b.downscale == 0 && b.sharpen == -1);
+        g = fopen(p5.c_str(), "w");
+        fputs("[video]\naa = fxaa\nsharpen = 0\n", g);
+        fclose(g);
+        CHECK(port_settings_load(&b, p5.c_str()) == 1);
+        CHECK(b.post_aa == 1 && b.sharpen == 0);
+        unsetenv("PS3RECOMP_POST_AA"); unsetenv("PS3RECOMP_UPSCALE");
+        unsetenv("PS3RECOMP_DOWNSCALE"); unsetenv("PS3RECOMP_SHARPEN");
+        b.post_aa = 2; b.upscale = 1; b.downscale = 0; b.sharpen = -1;
+        port_settings_export(&b);
+        CHECK(!strcmp(getenv("PS3RECOMP_POST_AA"), "smaa") && !strcmp(getenv("PS3RECOMP_UPSCALE"), "fsr1"));
+        CHECK(!strcmp(getenv("PS3RECOMP_DOWNSCALE"), "bilinear") && !strcmp(getenv("PS3RECOMP_SHARPEN"), "auto"));
+        setenv("PS3RECOMP_SHARPEN", "0.25", 1);
+        port_settings c; port_settings_defaults(&c);
+        CHECK((port_settings_from_env(&c) & (PORT_PIN_POST_AA | PORT_PIN_SHARPEN)) ==
+              (PORT_PIN_POST_AA | PORT_PIN_SHARPEN));
+        CHECK(c.post_aa == 2 && c.sharpen == 250);
+        unsetenv("PS3RECOMP_POST_AA"); unsetenv("PS3RECOMP_UPSCALE");
+        unsetenv("PS3RECOMP_DOWNSCALE"); unsetenv("PS3RECOMP_SHARPEN");
+        remove(p5.c_str());
     }
 
     remove(path.c_str());
