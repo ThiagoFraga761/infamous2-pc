@@ -49,6 +49,7 @@ extern "C" void rsx_vulkan_backend_set_vsync(int on);
 extern "C" void rsx_vulkan_backend_set_stretch(int on);
 extern "C" void rsx_vulkan_backend_set_fps_limit(int fps);
 extern "C" int rsx_vulkan_backend_fullscreen(void);
+extern "C" void ppu_native_set_fov_scale(float k);   /* ppu_native.cpp: CView::SetFov */
 extern "C" unsigned ppu_boot_frames_presented(void);
 extern "C" volatile int g_savedata_title;   /* libs/system/cellSaveData.c */
 extern "C" char g_savedata_load[32];        /* ...and the save to continue */
@@ -279,6 +280,15 @@ void page_video(port_settings& s)
     if (ImGui::Checkbox("Esticar a imagem (sem barras pretas)", &b)) {
         s.stretch = b; rsx_vulkan_backend_set_stretch(b); save();
     }
+    /* Live: each camera takes the new scale on its next SetFov, which the game
+     * calls every frame. Saved once the slider is let go, not on every step. */
+    int fov = s.fov;
+    pin_begin(PORT_PIN_FOV);
+    if (ImGui::SliderInt("Campo de visão", &fov, 0, 30, fov ? "+%d%%" : "Do jogo", ImGuiSliderFlags_AlwaysClamp)) {
+        s.fov = fov; ppu_native_set_fov_scale(1.0f + fov / 100.0f);
+    }
+    if (ImGui::IsItemDeactivatedAfterEdit()) save();
+    pin_end(PORT_PIN_FOV);
     const int nd = SDL_GetNumVideoDisplays();
     if (nd > 1 && !pinned(PORT_PIN_DISPLAY)) {
         const char* cur = SDL_GetDisplayName(s.display < nd ? s.display : 0);
@@ -291,7 +301,8 @@ void page_video(port_settings& s)
             ImGui::EndCombo();
         }
     }
-    hint("Resolução e monitor valem a partir da próxima vez que o jogo abrir.");
+    hint("Campo de visão: quanto mais da cena aparece em cada direção, na hora. Mais mundo na tela "
+         "também é mais trabalho para a CPU. Resolução e monitor valem a partir da próxima vez que o jogo abrir.");
 }
 
 void page_language(port_settings& s)

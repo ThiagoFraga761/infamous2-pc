@@ -17,6 +17,7 @@ typedef struct port_settings {
     int vsync;          /* 1 fifo, 0 mailbox */
     int stretch;        /* 1 stretch to the window, 0 black bars */
     int display;        /* which monitor the window opens on */
+    int fov;            /* field of view, percent wider than the game's (0..30): PS3RECOMP_FOV_SCALE */
     /* [language] */
     char voice[24];     /* the voice pack: cache/psarc/<voice>.psarc */
     char text[24];      /* the text pack: cache/psarc/<text>_text.psarc */
@@ -50,7 +51,7 @@ enum {
     PORT_PIN_SCALE = 1 << 0, PORT_PIN_FULLSCREEN = 1 << 1, PORT_PIN_VSYNC = 1 << 2,
     PORT_PIN_STRETCH = 1 << 3, PORT_PIN_DISPLAY = 1 << 4, PORT_PIN_VOICE = 1 << 5,
     PORT_PIN_TEXT = 1 << 6, PORT_PIN_FPS_LIMIT = 1 << 7, PORT_PIN_RECORD_THREAD = 1 << 8,
-    PORT_PIN_PARTICLES = 1 << 9, PORT_PIN_ANISO = 1 << 10,
+    PORT_PIN_PARTICLES = 1 << 9, PORT_PIN_ANISO = 1 << 10, PORT_PIN_FOV = 1 << 11,
 };
 
 /* Before port_settings_export: each field whose variable is set takes the
