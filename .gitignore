@@ -6,6 +6,7 @@
 !/README.md
 !/LICENSE
 !/CREDITS.md
+!/CHANGELOG.md
 !/docs/
 !/scripts/
 !/rpi/
@@ -68,6 +69,10 @@
 !/work/patches/ps3recomp.patch
 
 __pycache__/
+
+# perf captures kept beside the design notes: samples of a local build
+/rpi/**/*.data
+/rpi/**/*.log
 
 # player mods (docs/MODS.md)
 /mods/
