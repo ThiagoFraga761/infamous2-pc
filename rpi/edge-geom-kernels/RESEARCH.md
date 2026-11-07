@@ -16,6 +16,7 @@ out of the repo (`work/runs/edge/` is untracked).
 | 0xA3C8 | 0.9% | transform for culling | yes | 3.5-4x |
 | 0x4448 | 1.7% (14.2% of SPU time in Nov 2026, merged chunks) | vertex decompression, special formats | yes (section 5), opt-in | 4-6x on 64..300 vertices |
 | 0x9C20 | 0.65% (5.5% in Nov 2026) | inner loop of vertex compression, format 1 | yes, as the chunk 0x99E8 (section 6), opt-in | 2.4-3.3x for the whole of 0x9780 |
+| 0xC7B8 | 0.64% (2.7% of the module's samples, Oct 2026) | index decompression, the compressed triangle lists | yes (section 6.1), opt-in | 1.7-2.9x |
 
 All numbers are best-of-N on the harness, lifted code built with the port's
 SPU flags (`-O2 -march=x86-64-v4`), same machine, `nice -n 19`.
@@ -302,6 +303,58 @@ No register the chunk writes is read later: r80 is overwritten at 0x98C0 first,
 r2..r79 are dead (`live.py 98B0`). The fast path does four vertices per
 register; a group with an exponent-255 component goes the exact way.
 
+### 6.1 0xC7B8: index decompression
+
+0xD030 (from 0x59BC, just before the cull) calls it when the index format
+(S byte 3, high nibble) is 2 or 3, with r3 = S and r4 = B, the word at D+8.
+It rewrites B in place as the u16 triangle list. T = the u16 at S+0x1A0 times
+0xAAAB, as `mpy` does it (signed 16-bit operands, low 16 bits kept): the count
+divided by three. B holds a header (N0 u16, a bias u16, L u16, c byte), L
+bytes of flags (one per vertex reference, most significant bit first), CB =
+(2T + 7) / 8 bytes of 2-bit triangle codes, then N0 values of c bits. Four
+loops, each over the result of the previous one:
+
+1. The values, unpacked to u16 at OUT = B + 16-aligned(8 + L + CB), 32 at a
+   time, so 32 * ceil(N0 / 32) of them (the last from the bits that follow).
+   It runs backwards and in place; with c <= 15 it never reads a byte it has
+   written (value i ends below BS + 2i + 2, the stores above it start at
+   OUT + 2i + 2 >= BS + 2i + 2). Then a delta per quad lane: v[q] = raw[q] -
+   bias + v[q - 1], halfwords mod 2^16. c = 0 stores ceil(N0 / 8) zero quads
+   instead of unpacking (and the delta runs over the whole blocks, the rest
+   of them as the LS holds it). The loop's byte offset is a 16-bit `mpy`
+   product, which wraps past N0 = 32 * 32768 / (4c): the kernel stops at
+   8192.
+2. The vertex list at LIST = B + 16-aligned(6T): 16 * ceil(L / 2) entries
+   (a padding byte when L is odd: the first code byte), a set flag takes the
+   next value, a clear one the next number of a counter from 0.
+3. The codes, copied in whole quads to CODES = the end of the list.
+4. The triangles, 8 per 16 code bits, 3 quads per group at B + 48g for
+   every group (up to 7 past T, from the bits and entries that follow).
+   Code 3 takes three new entries; 0, 1 and 2 take one, n, and an edge of
+   the previous triangle p (zeros before the first): (p0, p2, n), (p2, p1,
+   n), (p1, p0, n). The loop is pipelined one group deep (its first group,
+   from zeros, is stored at B and overwritten), and it loads group g after
+   storing the groups up to g - 2. Tables at 0xEC40/0xED40 drive it, two
+   triangles per shuffle.
+
+The tail call to 0x64A8 stores the end, B + 48 * groups, at S+0x58. Nothing
+else is written, and no register past r79 (the callers read r80, r81, r1).
+
+The kernel (`edge_idx_core`) does the four loops on host-order copies and
+stores each buffer as the job leaves it: loop 2 eight entries per flag byte
+(a pshufb from a 256-entry table, the counter's offsets, a blend), loop 4 two
+triangles per two-source permute of (previous pair, next entries), the same
+idea as the job's tables. It falls back, before writing anything, for B, S
+or the stack off a quad boundary, c above 15, an empty flag stream, no
+triangle, N0 > 8192, a span past the LS or reaching S's words, the stack or
+the module, and where a loop could read what it has itself written: loop 2's
+values (with its read-ahead) against the list it stores, loop 3's source
+against its destination. Loop 4 cannot meet that (each triangle takes an
+entry, so group g reads from LIST + 16g on, past B + 48(g - 1) as 6T > 4T),
+and loop 1 is the backwards argument above. It checks a hash of the module's
+data at 0xEB70..0xF000 (the masks and constants the lift loads) once, then a
+compare with the copy it took.
+
 ## 7. Results
 
 ### 7.1 Differential tests
@@ -320,7 +373,8 @@ for the cull):
   entry states captured in the city, plus the 8 states of the in-game
   compare differences: all native, 0 differences.
 
-- **0x4448 and 0x99E8** (Nov 2026, harness in `~/tools/wt/edge-native-test`:
+- **0x4448 and 0x99E8** (Nov 2026, harness in `~/tools/wt/edge-native-test`, and
+  with the later tests `t_idx`, `b_idx`, `mut_idx.py` in `~/tools/wt/edge-more-test`:
   `extract.py` cuts the lifted module down to the functions the tests reach and
   adds the hooks as `lift_spu.py` does, `mk.sh dec enc uv`):
   - `t_uv`: all 2^24 unit vectors, fast against exact, 0 differences;
@@ -334,6 +388,34 @@ for the cull):
   - `mut.py`: 22 single changes, 19 caught; the 3 others are equivalent on the
     real input domain (s is never 0 or negative on the 10-bit grid; the tail
     group's mask only guards the zero quads the job writes after it).
+- **The first in-game run of 0x4448** (compare mode, the city and the heavy
+  area, Nov 2026): differ 0 on millions of calls, but 18% of them fell back.
+  The job lays the uniform tables out back to back, 16 bytes times the count
+  rounded up to 8 apart (0x7198, loop 0x7330), so with a count of 0 or 7 mod 8
+  the two zero quads past the normals are the first two tangents, and the
+  overlap guard refused it. The two loops run one after the other (0x4A30:
+  positions, normals and the normals' zero quads, interleaved; then 0x4D18:
+  the tangents and theirs), so the kernel now tags each span with its loop,
+  lets spans of different loops overlap, and writes them in the job's order.
+  `t_dec` with `LAYOUT=1` (the job's layout, counts of 0 and 7 mod 8 often):
+  the old guard falls back on 1054 of 3000 cases, the new kernel on none, 0
+  differences; `LAYOUT=2` shuffles the tables so the zero quads can land on
+  the positions too, which must still fall back (a mutant that lets them
+  overlap differs on 48 of 1500). The stats line now names the fallback
+  reasons (generic formats, zero count, no free slot, overlap).
+- **0xC7B8** (`t_idx N SEED`, `CHAOS=1`): streams as an encoder writes them
+  (1..2000 triangles, any mix of codes, flags and c, B anywhere on a quad,
+  tiny segments), and with `CHAOS=1` random header fields, counts and a B off
+  a quad: 0 differences on 3000 x 2 + 4000 x 3 + 3000 + 4000 x 3 (chaos)
+  cases. Before the N0 limit, chaos found the wrap of the unpack offset
+  (N0 > 32768). `mut_idx.py`: 18 single changes, 17 caught; the survivor is
+  a guard no real call reaches (loop 3's source against its destination,
+  kept as a cheap check).
+- `mut.py` after the layout change: 24 single changes (two new: the
+  positions' phase, the zero quads' order), 22 caught. The tail group's mask
+  is caught now, since the zero quads are written before the vectors; the
+  two survivors are the known equivalents (s is never 0 on the grid, h is
+  positive).
 
 ### 7.2 Mutation check
 
@@ -368,6 +450,11 @@ In the randomised runs, which start from a cold LS copy, the totals are 4.5x
   line counts those groups.
 - 0x9780 as a whole (its fixed part stays lifted): 64 vertices 0.80 -> 0.34 us,
   128: 1.48 -> 0.51 us, 256: 2.83 -> 0.86 us.
+- 0xC7B8 (`b_idx SEED`, best of 300): 14..29 triangles 0.20 -> 0.08-0.12 us,
+  106: 0.36 -> 0.21 us, 554: 1.33 -> 0.53 us, 1607: 3.06 -> 1.06 us; over the
+  random cases 1.7-2x. The lifted code is efficient here (2.5 ns per
+  triangle, eight at a time through the job's tables); a scalar kernel was
+  slower than it until loops 2 and 4 went SIMD.
 
 ### 7.4 First in-game run, and what it found
 
@@ -395,7 +482,7 @@ records). Replaying the captures:
   flags (the exact paths call the same helpers as the lift, so they must be
   built the same way).
 - `work/tools/lift_spu.py`:
-  `NATIVE_ENTRIES["jobmod_6d1c65171899_eA2A0"] = [0xD0A8, 0xA3C8, 0xA798, 0x4448, (0x99E8, 0x98B0)]`.
+  `NATIVE_ENTRIES["jobmod_6d1c65171899_eA2A0"] = [0xD0A8, 0xA3C8, 0xA798, 0x4448, (0x99E8, 0x98B0), 0xC7B8]`.
   A pair is an entry with a continuation: when the kernel reports the work
   done, the lifted chunk transfers to 0x98B0 instead of returning.
 - `PS3RECOMP_NATIVE_EDGE`: 1 (default) on, 0 off, 2 compare: the kernel runs
@@ -405,9 +492,12 @@ records). Replaying the captures:
   us, lifted us per compared call`. The first 8 differences are logged with
   their LS range; `PS3RECOMP_EDGE_DUMP=dir` also writes the input state of
   each (128 registers then the LS) for `t_replay`.
-- `PS3RECOMP_NATIVE_EDGE_DEC` (0x4448) and `PS3RECOMP_NATIVE_EDGE_ENC`
-  (0x99E8): the same values, off unless set, until a compare run in the game
-  shows no difference. In compare mode the chunk runs lifted up to its
+- `PS3RECOMP_NATIVE_EDGE_DEC` (0x4448), `PS3RECOMP_NATIVE_EDGE_ENC`
+  (0x99E8) and `PS3RECOMP_NATIVE_EDGE_IDX` (0xC7B8): the same values, off
+  unless set, until a compare run in the game shows no difference.
+  `PS3RECOMP_EDGE_DEC_LAYOUT=0` puts back the strict overlap guard of
+  0x4448 (no spans of different loops may overlap), the kill switch for the
+  layout change of section 7.1; on by default within the kernel's switch. In compare mode the chunk runs lifted up to its
   continuation, and r80 is left out of the comparison. The stats line adds the
   groups the exact path redid.
 - `PS3RECOMP_EDGE_CAPTURE=dir[,count[,every]]` writes input states of real
@@ -415,9 +505,16 @@ records). Replaying the captures:
 
 ## 9. Open
 
-- 0x4448 and 0x99E8 have no in-game compare run yet (opt-in until they do).
+- 0x4448 and 0x99E8 compared clean in the game (differ 0); their defaults
+  are still opt-in. 0xC7B8 and the new 0x4448 guard have no in-game run yet.
 - 0x4448's generic path (0xAD48) and the other compression formats (0x9950,
-  0x9D18, 0x9FD8) stay lifted; 0xC7B8 (3.1%) is not looked at.
+  0x9D18, 0x9FD8) stay lifted, on purpose: in the October city profile
+  (`perf/spu_syms_all.txt`) 0xAD48 has no sample at all, its per-format
+  handlers (0xE3xx-0xE5xx) 0.05% together and 0x9950 0.00%, 0x9D18 and
+  0x9FD8 none, against 2.64% for 0x4448. So the 0x4448 fallbacks the game
+  shows are most likely the layout overlap above (a quarter of the segments
+  with tangents, which fits 18%), not these formats; the next run's stats
+  line says which reason each one had.
 - The cull fast path is bound by gathering 48 records per 16 triangles and by
   the in-place stores; an AoS formulation (area and snap tests on whole
   record quads) would cut the transposes.

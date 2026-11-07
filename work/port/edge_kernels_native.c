@@ -13,6 +13,8 @@
  *           positions with an offset and a scale, 24-bit unit vectors)
  *   0x99E8  vertex compression for output format 1 (a chunk of 0x9780: three
  *           floats and two X11Y11Z10 words per vertex)
+ *   0xC7B8  index decompression, the compressed triangle lists (flags, 2-bit
+ *           triangle codes and bit-packed, delta-coded vertex numbers)
  *
  * Floats follow the SPU: truncation, denormal operands and results as zero,
  * no infinities. The fast paths run four vertices per AVX-512 register and
@@ -27,9 +29,9 @@
  * native kernel on a copy of the local store, then the lifted function, and
  * compares the local store and r0, r1, r80-r127, logging any difference.
  * The decompression and compression kernels are newer and opt-in, each with
- * its own switch of the same values: PS3RECOMP_NATIVE_EDGE_DEC and
- * PS3RECOMP_NATIVE_EDGE_ENC (off unless set; PS3RECOMP_NATIVE_EDGE=0 still
- * turns everything off).
+ * its own switch of the same values: PS3RECOMP_NATIVE_EDGE_DEC,
+ * PS3RECOMP_NATIVE_EDGE_ENC and PS3RECOMP_NATIVE_EDGE_IDX (off unless set;
+ * PS3RECOMP_NATIVE_EDGE=0 still turns everything off).
  *
  * Built like the lifted SPU sources (-march=x86-64-v4): it needs AVX-512. */
 #include <stdint.h>
@@ -290,13 +292,21 @@ static void normalize_ls(uint8_t* ls, uint32_t p, uint32_t from, uint32_t n8, ui
 }
 
 /* ------------------------------------------------------------------ overlap guard */
+/* w: 0 read, 1 written. A kernel whose job writes its outputs in separate
+ * phases (one loop after another) may tag them with the phase, w = 2, 3, ...,
+ * and write them in that order too: two written spans of different phases
+ * may then overlap, because the later phase overwrites the earlier one in
+ * both codes and the final bytes agree. Spans of one phase are written
+ * interleaved, so they still may not overlap, nor may any written span and a
+ * read one. */
 typedef struct { uint32_t lo, hi; int w; } Span;
 static int spans_ok(const Span* s, int n)
 {
     for (int i = 0; i < n; i++) {
         if (s[i].hi > SPU_LS_SIZE || s[i].lo > s[i].hi) return 0;
         for (int j = i + 1; j < n; j++)
-            if ((s[i].w || s[j].w) && s[i].lo < s[j].hi && s[j].lo < s[i].hi) return 0;
+            if ((s[i].w || s[j].w) && s[i].lo < s[j].hi && s[j].lo < s[i].hi &&
+                !(s[i].w >= 2 && s[j].w >= 2 && s[i].w != s[j].w)) return 0;
     }
     return 1;
 }
@@ -1350,28 +1360,38 @@ long edge_dec_uv_selftest(uint8_t* ls)
     return diff;
 }
 #endif
+/* Why the decompression kernel left a call to the lifted code, for the stats
+ * line: the in-game share of fallbacks is the cost still left in the lift, and
+ * each reason has a different fix. */
+enum { DEC_FB_GENERIC, DEC_FB_COUNT, DEC_FB_SLOTS, DEC_FB_OVERLAP, DEC_FB_OTHER, DEC_FB_N };
+static const char* const k_dec_fb_name[DEC_FB_N] = { "generic formats", "zero count", "no free slot", "overlap", "other" };
+static unsigned long long g_dec_fb[DEC_FB_N];
+/* PS3RECOMP_EDGE_DEC_LAYOUT=0 restores the strict overlap guard (no spans of
+ * different loops may overlap), the kill switch for the layout change. */
+static int g_dec_layout = 1;
+#define DEC_FALLBACK(r) do { __atomic_fetch_add(&g_dec_fb[r], 1, __ATOMIC_RELAXED); return 0; } while (0)
 static int edge_dec_core(u128* gpr, uint8_t* ls)
 {
     const uint32_t S = gpr[3]._u32[0], T = gpr[4]._u32[0], D = gpr[5]._u32[0], sp = gpr[1]._u32[0];
-    if ((sp & 15) || sp < 0x400 || sp + 0x20 > SPU_LS_SIZE || (S & 15) || S + 0x180 > SPU_LS_SIZE) return 0;
+    if ((sp & 15) || sp < 0x400 || sp + 0x20 > SPU_LS_SIZE || (S & 15) || S + 0x180 > SPU_LS_SIZE) DEC_FALLBACK(DEC_FB_OTHER);
     /* the special format pair, tested on the aligned quads as the job does */
     const uint32_t F = word_at(ls, D + 44), F2 = word_at(ls, D + 0x30);
     const Q f0 = lq(ls, F), f1 = lq(ls, F + 16);
-    if ((f0._u32[0] >> 24) != 2 || (f0._u32[2] & 0xFF) != 1 || (f1._u32[0] & 0xFF) != 2) return 0;
+    if ((f0._u32[0] >> 24) != 2 || (f0._u32[2] & 0xFF) != 1 || (f1._u32[0] & 0xFF) != 2) DEC_FALLBACK(DEC_FB_GENERIC);
     if (F2) {
         const Q g = lq(ls, F2);
-        if ((g._u32[0] >> 24) != 1 || (g._u32[2] & 0xFF) != 3) return 0;
+        if ((g._u32[0] >> 24) != 1 || (g._u32[2] & 0xFF) != 3) DEC_FALLBACK(DEC_FB_GENERIC);
     }
     Dec k; memset(&k, 0, sizeof k);
     k.S = S; k.tan = F2 != 0;
     k.P = word_at(ls, D + 20); k.P2 = word_at(ls, D + 24);
     const uint32_t numv = lq(ls, S)._u32[2] >> 16;
-    if (!numv) return 0;                                  /* the job's loop would run 2^27 times */
+    if (!numv) DEC_FALLBACK(DEC_FB_COUNT);                /* the job's loop would run 2^27 times */
     k.n2 = (numv + 1) & ~1u;
     Q slots = lq(ls, S + 0x170);
     for (uint32_t j = 0; j < 2 + k.tan; j++) {
         const int i = dec_free_slot(slots);
-        if (i < 0) return 0;
+        if (i < 0) DEC_FALLBACK(DEC_FB_SLOTS);
         dec_set_slot(&slots, i, j + 1);
         k.slot[j] = i;
     }
@@ -1381,28 +1401,44 @@ static int edge_dec_core(u128* gpr, uint8_t* ls)
     k.X = V4(word_at(ls, X), word_at(ls, X + 4), word_at(ls, X + 8), word_at(ls, X + 12));
     const uint32_t b = lq(ls, T + 0x10)._u32[2] & 0xFF;
     k.shr = V4(b - 16, b - 16, b - 16, 0); k.shl = V4(16 + b, 16 + b, 16 + b, 32);
-    /* the overlap guard: outputs against each other and against everything read */
-    Span s[12]; int ns = 0;
+    /* The overlap guard: outputs against each other and against everything
+     * read. The job lays the uniform tables out back to back, 16 bytes times
+     * the count rounded up to 8 apart (0x7198, loop 0x7330), so with a count
+     * of 0 or 7 mod 8 the two zero quads past the normals are the first two
+     * tangents. That was the in-game fallback: a quarter of the segments
+     * with tangents. The two loops run one after the other: 0x4A30 writes
+     * the positions, the normals and the normals' zero quads, interleaved
+     * (its first iteration stores a pair of positions and then the zero
+     * quads), and only then does 0x4D18 write the tangents and their zero
+     * quads. So a span of the second loop may overlap one of the first: the
+     * tangents overwrite it in the job and in the kernel, which keeps that
+     * order. Spans of one loop still may not overlap (phases 2 and 3). */
+    Span s[14]; int ns = 0;
+    const int ph2 = g_dec_layout ? 2 : 1, ph3 = g_dec_layout ? 3 : 1;   /* 1: the strict guard of before */
     s[ns++] = (Span){ sp - 0x50, sp + 0x20, 1 };
     s[ns++] = (Span){ S + 0x50, S + 0x70, 1 };
     s[ns++] = (Span){ S + 0x170, S + 0x180, 1 };
     s[ns++] = (Span){ S, S + 0x50, 0 };
-    s[ns++] = (Span){ k.U1 & LSQ, (k.U1 & LSQ) + 16 * k.n2, 1 };
-    s[ns++] = (Span){ k.U2 & LSQ, (k.U2 & LSQ) + 16 * (k.n2 + 2), 1 };
-    if (k.tan) s[ns++] = (Span){ k.U3 & LSQ, (k.U3 & LSQ) + 16 * (k.n2 + 2), 1 };
+    s[ns++] = (Span){ (k.U2 & LSQ) + 16 * k.n2, (k.U2 & LSQ) + 16 * (k.n2 + 2), ph2 };
+    s[ns++] = (Span){ k.U1 & LSQ, (k.U1 & LSQ) + 16 * k.n2, ph2 };
+    s[ns++] = (Span){ k.U2 & LSQ, (k.U2 & LSQ) + 16 * k.n2, ph2 };
+    if (k.tan) {
+        s[ns++] = (Span){ (k.U3 & LSQ) + 16 * k.n2, (k.U3 & LSQ) + 16 * (k.n2 + 2), ph3 };
+        s[ns++] = (Span){ k.U3 & LSQ, (k.U3 & LSQ) + 16 * k.n2, ph3 };
+    }
     s[ns++] = (Span){ k.P, k.P + 9 * k.n2, 0 };
     if (k.tan) s[ns++] = (Span){ k.P2, k.P2 + 3 * k.n2, 0 };
     s[ns++] = (Span){ X & LSQ, (X & LSQ) + 32, 0 };
     s[ns++] = (Span){ 0x4000, 0xF6B0, 0 };              /* the module: tables, constants, code */
     s[ns++] = (Span){ D & LSQ, (D & LSQ) + 64, 0 };
-    if (!spans_ok(s, ns)) return 0;
-    if (((T + 0x10) & LSQ) + 16 > SPU_LS_SIZE || (F & LSQ) + 32 > SPU_LS_SIZE) return 0;
+    if (!spans_ok(s, ns)) DEC_FALLBACK(DEC_FB_OVERLAP);
+    if (((T + 0x10) & LSQ) + 16 > SPU_LS_SIZE || (F & LSQ) + 32 > SPU_LS_SIZE) DEC_FALLBACK(DEC_FB_OTHER);
     /* the outputs must not reach what the job reads after writing them: T, F, F2 */
     {
         const uint32_t rd[3] = { (T + 0x10) & LSQ, F & LSQ, F2 & LSQ };
         for (int r = 0; r < 3; r++)
             for (int i = 0; i < ns; i++)
-                if (s[i].w && rd[r] < s[i].hi && s[i].lo < rd[r] + 32) return 0;
+                if (s[i].w && rd[r] < s[i].hi && s[i].lo < rd[r] + 32) DEC_FALLBACK(DEC_FB_OVERLAP);
     }
 
     /* prologue */
@@ -1415,20 +1451,27 @@ static int edge_dec_core(u128* gpr, uint8_t* ls)
     }
     const int fast = g_dec_ok && k.P + 9 * (k.n2 + 2) + 16 <= SPU_LS_SIZE && (!k.tan || k.P2 + 3 * (k.n2 + 2) + 16 <= SPU_LS_SIZE) &&
                      !memcmp(ls + DEC_TAB, k_dec_tab_be, sizeof k_dec_tab_be);
+    /* Everything of the first loop before anything of the second (see the
+     * guard above); within a loop the spans are disjoint, so any order. */
+    sq(ls, k.U2 + 16 * k.n2, splat4(0)); sq(ls, k.U2 + 16 * k.n2 + 16, splat4(0));
     if (!fast || b > 16) dec_exact_pos(ls, &k);
     if (!fast) {
         dec_exact_uv(ls, k.P + 6, 9, k.U2, k.n2);
-        if (k.tan) dec_exact_uv(ls, k.P2, 3, k.U3, k.n2);
+        if (k.tan) {
+            sq(ls, k.U3 + 16 * k.n2, splat4(0)); sq(ls, k.U3 + 16 * k.n2 + 16, splat4(0));
+            dec_exact_uv(ls, k.P2, 3, k.U3, k.n2);
+        }
     } else {
         const uint32_t csr = _mm_getcsr();
         _mm_setcsr(CSR_FAST);
         if (b <= 16) dec_fast_pos(ls, &k, b);
         dec_fast_uv(ls, k.P, 9, 6, k.U2, k.n2, csr);
-        if (k.tan) dec_fast_uv(ls, k.P2, 3, 0, k.U3, k.n2, csr);
+        if (k.tan) {
+            sq(ls, k.U3 + 16 * k.n2, splat4(0)); sq(ls, k.U3 + 16 * k.n2 + 16, splat4(0));
+            dec_fast_uv(ls, k.P2, 3, 0, k.U3, k.n2, csr);
+        }
         _mm_setcsr(csr);
     }
-    sq(ls, k.U2 + 16 * k.n2, splat4(0)); sq(ls, k.U2 + 16 * k.n2 + 16, splat4(0));
-    if (k.tan) { sq(ls, k.U3 + 16 * k.n2, splat4(0)); sq(ls, k.U3 + 16 * k.n2 + 16, splat4(0)); }
     gpr[80] = lq(ls, sp - 0x10); gpr[81] = lq(ls, sp - 0x20); gpr[82] = lq(ls, sp - 0x30);
     gpr[0] = lq(ls, sp + 0x10);
     return 1;
@@ -1592,6 +1635,275 @@ static int edge_enc_core(u128* gpr, uint8_t* ls)
     return 1;
 }
 
+/* ================================================================== 0xC7B8: index decompression
+ *
+ * 0xD030 calls it for the compressed index formats (S byte 3, high nibble 2
+ * or 3) with r3 = S and r4 = B, the segment's index data, and it rewrites B in
+ * place as the triangle list of u16 indexes the cull reads. T, the triangle
+ * count, is the u16 at S+0x1A0 times 0xAAAB (as mpy does it: signed 16-bit
+ * operands, the low 16 bits kept), which is the count / 3. B holds:
+ *
+ *   +0 N0 (u16), +2 a bias (u16), +4 L (u16), +6 c (byte): a header;
+ *   +8 L bytes of flags, one bit per vertex reference, most significant first;
+ *   then CB = (2T + 7) / 8 bytes of 2-bit triangle codes;
+ *   then N0 values of c bits each, packed most significant first.
+ *
+ * The job decodes it in four loops, each over the result of the one before:
+ *
+ *   1. The values, unpacked in place to u16 at OUT = B + 16-aligned(8 + L +
+ *      CB), 32 at a time (so 32 * ceil(N0 / 32), the last ones from whatever
+ *      bits follow), then delta-decoded per quad: v[q] = raw[q] - bias +
+ *      v[q - 1], eight halfword lanes, mod 2^16. c = 0 stores ceil(N0 / 8)
+ *      zero quads instead of unpacking.
+ *   2. The vertex list at LIST = B + 16-aligned(6T), 16 * ceil(L / 2) u16
+ *      entries: a set flag takes the next value, a clear one the next number
+ *      of a counter from 0.
+ *   3. The codes copied, whole quads, to CODES = the end of the list.
+ *   4. The triangles, eight per group of 16 code bits, 3 quads per group at
+ *      B + 48 g for every group (so up to seven past T, from the bits and
+ *      entries that follow). Code 3 takes three new entries; codes 0, 1 and 2
+ *      take one, n, with an edge of the previous triangle p (zeros at the
+ *      start): (p0, p2, n), (p2, p1, n), (p1, p0, n).
+ *
+ * Then 0x64A8 stores the end, B + 48 * groups, at S+0x58.
+ *
+ * The loops are software pipelined, and the in-place writes run close behind
+ * the reads: the unpack goes backwards from the end, the triangles are stored
+ * after the next group is loaded. The kernel does the same work in the same
+ * order of loops, reading what each loop would read, and falls back where a
+ * loop could read bytes it has itself overwritten (the overlap guards below),
+ * on a B or S off a quad boundary, c above 15, an empty flag stream or no
+ * triangle, all of which the job's loops treat in ways not modelled here.
+ * The lift reads its shuffle masks and constants from the module's data at
+ * 0xEB70..0xF000; the kernel does not use them, but checks they hold the
+ * module's bytes (a hash) so that a different module never runs this. */
+#define IDX_TAB_LO 0xEB70u
+#define IDX_TAB_HI 0xF000u
+#define IDX_TAB_HASH 0x6007FBFCAD636EBCull
+static int g_idx_tab_ok;                   /* the hash matched once: from then on a cheaper compare */
+static uint8_t g_idx_tab[IDX_TAB_HI - IDX_TAB_LO];
+static uint64_t idx_tab_hash(const uint8_t* p)
+{
+    uint64_t h = 0x9E3779B97F4A7C15ull;
+    for (uint32_t i = 0; i < IDX_TAB_HI - IDX_TAB_LO; i += 8) {
+        uint64_t w; memcpy(&w, p + i, 8);
+        h = (h ^ w) * 0xFF51AFD7ED558CCDull; h ^= h >> 29;
+    }
+    return h;
+}
+static int idx_tables_ok(const uint8_t* ls)
+{
+    const uint8_t* p = ls + IDX_TAB_LO;
+    if (likely(__atomic_load_n(&g_idx_tab_ok, __ATOMIC_ACQUIRE))) return !memcmp(p, g_idx_tab, sizeof g_idx_tab);
+    if (idx_tab_hash(p) != IDX_TAB_HASH) return 0;
+    /* Racing threads copy the same bytes; the flag is published after. */
+    memcpy(g_idx_tab, p, sizeof g_idx_tab);
+    __atomic_store_n(&g_idx_tab_ok, 1, __ATOMIC_RELEASE);
+    return 1;
+}
+#ifdef EDGE_HARNESS
+unsigned long long edge_idx_tab_hash(const uint8_t* ls) { return idx_tab_hash(ls + IDX_TAB_LO); }
+#endif
+/* Limits of the host buffers (real segments are far below them). */
+#define IDX_MAXL 4096u                       /* flag bytes: up to 16 * 2048 list entries */
+#define IDX_MAXT 8192u                       /* triangles: 1024 groups */
+#define IDX_MAXV (8192u + 16 * IDX_MAXL + 64)   /* values: 32 * 256 unpacked, or as many as the flags */
+#define IDX_MAXE (8 * IDX_MAXL + 24 * (IDX_MAXT / 8) + 64)
+#define IDX_BUF_BYTES (2 * (IDX_MAXV + IDX_MAXE + IDX_MAXT / 8 + 64))
+/* Loop 2 per flag byte m: the pshufb that takes the values of the set flags,
+ * in order, from the next eight (host-order u16), the counter's offset for
+ * the clear ones, and which lanes are set (lane j is bit 7 - j). */
+static _Alignas(16) uint8_t k_idx_shuf[256][16];
+static _Alignas(16) uint16_t k_idx_cofs[256][8];
+static __mmask8 k_idx_sel[256];
+/* Loop 4 per pair of triangles (four code bits, the first triangle's in the
+ * high two): the permute indexes into (previous pair, next entries) for the
+ * pair's six indexes, and the entries the pair takes. */
+static _Alignas(16) uint16_t k_idx_pair[16][8];
+static uint8_t k_idx_take[16];
+static void idx_pair_tri(int code, const uint16_t* p, uint16_t next, uint16_t* t, int* used)
+{
+    /* p: the previous triangle's three sources; next: the first unused entry's */
+    if (code == 3) { t[0] = next; t[1] = next + 1; t[2] = next + 2; *used = 3; return; }
+    static const int ia[3] = { 0, 2, 1 }, ib[3] = { 2, 1, 0 };
+    t[0] = p[ia[code]]; t[1] = p[ib[code]]; t[2] = next; *used = 1;
+}
+static void idx_tables_init(void)
+{
+    for (int nib = 0; nib < 16; nib++) {
+        /* sources: 3..5 the previous pair's second triangle, 8.. the entries */
+        const uint16_t p[3] = { 3, 4, 5 };
+        uint16_t t1[3], t2[3]; int u1, u2;
+        idx_pair_tri(nib >> 2, p, 8, t1, &u1);
+        idx_pair_tri(nib & 3, t1, (uint16_t)(8 + u1), t2, &u2);
+        for (int j = 0; j < 3; j++) { k_idx_pair[nib][j] = t1[j]; k_idx_pair[nib][3 + j] = t2[j]; }
+        k_idx_pair[nib][6] = k_idx_pair[nib][7] = 0;
+        k_idx_take[nib] = (uint8_t)(u1 + u2);
+    }
+    for (int m = 0; m < 256; m++) {
+        int ones = 0;
+        k_idx_sel[m] = 0;
+        for (int j = 0; j < 8; j++) {
+            const int f = (m >> (7 - j)) & 1;
+            k_idx_shuf[m][2 * j] = f ? (uint8_t)(2 * ones) : 0x80;
+            k_idx_shuf[m][2 * j + 1] = f ? (uint8_t)(2 * ones + 1) : 0x80;
+            k_idx_cofs[m][j] = (uint16_t)(j - ones);
+            if (f) { k_idx_sel[m] |= (__mmask8)(1u << j); ones++; }
+        }
+    }
+}
+static inline uint32_t ls_rd16(const uint8_t* ls, uint32_t a) { return (uint32_t)ls[a] << 8 | ls[a + 1]; }
+static inline void ls_wr16(uint8_t* ls, uint32_t a, uint32_t v) { ls[a] = (uint8_t)(v >> 8); ls[a + 1] = (uint8_t)v; }
+static inline int idx_disjoint(uint32_t alo, uint32_t ahi, uint32_t blo, uint32_t bhi) { return ahi <= blo || bhi <= alo; }
+/* Why the index kernel left a call to the lifted code (the stats line). */
+enum { IDX_FB_SHAPE, IDX_FB_OVERLAP, IDX_FB_TABLES, IDX_FB_N };
+static const char* const k_idx_fb_name[IDX_FB_N] = { "unmodelled shape", "overlap", "module data" };
+static unsigned long long g_idx_fb[IDX_FB_N];
+#ifdef EDGE_HARNESS
+const unsigned long long* edge_idx_fallbacks(void) { return g_idx_fb; }
+#endif
+#define IDX_FALLBACK(r) do { __atomic_fetch_add(&g_idx_fb[r], 1, __ATOMIC_RELAXED); return 0; } while (0)
+static int edge_idx_core(u128* gpr, uint8_t* ls)
+{
+    const uint32_t S = gpr[3]._u32[0], B = gpr[4]._u32[0], sp = gpr[1]._u32[0];
+    if ((S & 15) || (B & 15) || (sp & 15) || S + 0x1B0 > SPU_LS_SIZE || B + 16 > SPU_LS_SIZE) IDX_FALLBACK(IDX_FB_SHAPE);
+    const uint32_t T = (uint32_t)((int32_t)(int16_t)ls_rd16(ls, S + 0x1A0) * (int32_t)(int16_t)0xAAAB) & 0xFFFF;
+    const uint32_t N0 = ls_rd16(ls, B), bias = ls_rd16(ls, B + 2), L = ls_rd16(ls, B + 4), c = ls[B + 6];
+    /* The unpack loop keeps its byte offset in 16-bit products (mpy), which
+     * wrap past N0 = 32 * 32768 / (4c); real segments have a few hundred. */
+    if (!T || !L || c > 15 || (c && !N0) || N0 > 8192 || L > IDX_MAXL || T > IDX_MAXT) IDX_FALLBACK(IDX_FB_SHAPE);
+    const uint32_t CB = (2 * T + 7) >> 3;
+    const uint32_t BS = B + 8 + L + CB, OUT = B + ((8 + L + CB + 15) & ~15u);
+    const uint32_t nb = (N0 + 31) >> 5;
+    const uint32_t LIST = B + ((6 * T + 15) & ~15u), it = (8 * L + 15) >> 4, nl = 16 * it;
+    const uint32_t CODES = LIST + 32 * it, q3 = (CB + 15) >> 4, CSRC = B + 8 + L;
+    const uint32_t G = (T + 7) >> 3, END = B + 48 * G;
+    /* Every span inside the LS (the lift would wrap; such a call is not a real one). */
+    const uint32_t v_end = OUT + 64 * nb;     /* c = 0 zeroes ceil(N0 / 8) <= 4 nb quads of it */
+    if (v_end + 64 > SPU_LS_SIZE || BS + 4 * c * nb + 32 > SPU_LS_SIZE || CODES + 16 * q3 + 64 > SPU_LS_SIZE || END > SPU_LS_SIZE)
+        IDX_FALLBACK(IDX_FB_SHAPE);
+    /* Nothing the job writes may reach S's quad at 0x50, the stack, the module. */
+    {
+        const uint32_t whi = v_end > CODES + 16 * q3 ? v_end : CODES + 16 * q3;
+        const uint32_t wend = whi > END ? whi : END;
+        if (!idx_disjoint(B, wend, S + 0x50, S + 0x60) || !idx_disjoint(B, wend, S + 0x1A0, S + 0x1B0) ||
+            !idx_disjoint(B, wend, 0x4000, 0xF6B0) || !idx_disjoint(B, wend, sp - 0x400, sp + 0x40))
+            IDX_FALLBACK(IDX_FB_OVERLAP);
+    }
+    if (!idx_tables_ok(ls)) IDX_FALLBACK(IDX_FB_TABLES);
+    /* The guards of loops 2-4 need the flag count and the list positions;
+     * both come from bytes no earlier loop writes (the flags and codes lie
+     * before OUT), so they are taken first and the call can still fall back
+     * having written nothing. */
+    uint32_t nflag = 0;
+    for (uint32_t i = 0; i < 2 * it; i++) nflag += (uint32_t)__builtin_popcount(ls[B + 8 + i]);
+    /* loop 2 reads the values (two quads past where it is, ahead) and the
+     * flags while it stores the list */
+    if (!idx_disjoint(OUT, OUT + 2 * nflag + 48, LIST, LIST + 2 * nl) || !idx_disjoint(B, B + 8 + 2 * it + 16, LIST, LIST + 2 * nl))
+        IDX_FALLBACK(IDX_FB_OVERLAP);
+    /* loop 3 reads a quad ahead of the one it stores */
+    if (!idx_disjoint(CSRC & ~15u, ((CSRC + 16 * q3) & ~15u) + 32, CODES, CODES + 16 * q3)) IDX_FALLBACK(IDX_FB_OVERLAP);
+    /* Loop 4 loads group g's codes and entries after storing the groups up
+     * to g - 2 and the pipeline's first, garbage, group at B. Each triangle
+     * takes at least one entry, so group g reads from LIST + 16g or later,
+     * and the codes lie past the list. That is past B + 48 * max(1, g - 1)
+     * for every 1 <= g < G: G >= 2 means T >= 9, so LIST - B >= 6T >= 54,
+     * and 32(G - 1) - 48 < 4T. So no call needs a check here. The entries
+     * read stay inside the LS (at most 24 per group), and so do the values
+     * loop 2 reads. */
+    if (LIST + 48 * G + 64 > SPU_LS_SIZE || OUT + 2 * nflag + 64 > SPU_LS_SIZE) IDX_FALLBACK(IDX_FB_SHAPE);
+
+    /* The loops run on host-order copies (values, list entries), and each
+     * stores its buffer to the LS as the job leaves it. */
+    static _Thread_local uint16_t* buf;
+    if (unlikely(!buf) && !(buf = (uint16_t*)aligned_alloc(64, IDX_BUF_BYTES))) IDX_FALLBACK(IDX_FB_SHAPE);
+    uint16_t* const V = buf;
+    uint16_t* const E = buf + IDX_MAXV;
+    const __m128i bsw = _mm_setr_epi8(1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14);
+
+    /* loop 1: the values (from the bits as they are before the job's
+     * backwards, in-place unpack reaches them: it never reads a byte it has
+     * written, RESEARCH.md 6.1), then the delta per quad lane */
+    const uint32_t nv = 32 * nb;
+    if (c) {
+        const uint32_t sh = 64 - c;
+        for (uint32_t i = 0; i < nv; i++) {
+            const uint32_t bit = i * c;
+            uint64_t w; memcpy(&w, ls + BS + (bit >> 3), 8);
+            V[i] = (uint16_t)((__builtin_bswap64(w) << (bit & 7)) >> sh);
+        }
+    } else {
+        const uint32_t nz = 8 * ((N0 + 7) >> 3);   /* zeroed; the rest of the block keeps the LS */
+        memset(V, 0, 2 * nz);
+        for (uint32_t i = nz; i < nv; i += 8)
+            _mm_storeu_si128((__m128i*)(V + i), _mm_shuffle_epi8(_mm_loadu_si128((const __m128i*)(ls + OUT + 2 * i)), bsw));
+    }
+    {
+        const __m128i bv = _mm_set1_epi16((short)bias);
+        __m128i prev = _mm_setzero_si128();
+        for (uint32_t q = 0; q < 4 * nb; q++) {
+            prev = _mm_add_epi16(_mm_sub_epi16(_mm_loadu_si128((const __m128i*)(V + 8 * q)), bv), prev);
+            _mm_storeu_si128((__m128i*)(V + 8 * q), prev);
+            _mm_storeu_si128((__m128i*)(ls + OUT + 16 * q), _mm_shuffle_epi8(prev, bsw));
+        }
+    }
+    /* values past the unpacked blocks are whatever the LS holds there (only
+     * garbage flags reach them) */
+    for (uint32_t i = nv; i < nflag + 8; i++) V[i] = (uint16_t)ls_rd16(ls, OUT + 2 * i);
+    /* loop 2: eight entries per flag byte, the set ones from the values, the
+     * others from the counter */
+    {
+        uint32_t k = 0, ctr = 0;
+        for (uint32_t i = 0; i < 2 * it; i++) {
+            const uint32_t m = ls[B + 8 + i];
+            const __m128i vv = _mm_shuffle_epi8(_mm_loadu_si128((const __m128i*)(V + k)), _mm_load_si128((const __m128i*)k_idx_shuf[m]));
+            const __m128i cc = _mm_add_epi16(_mm_set1_epi16((short)ctr), _mm_load_si128((const __m128i*)k_idx_cofs[m]));
+            const __m128i o = _mm_mask_blend_epi16(k_idx_sel[m], cc, vv);
+            _mm_storeu_si128((__m128i*)(E + 8 * i), o);
+            _mm_store_si128((__m128i*)(ls + LIST + 16 * i), _mm_shuffle_epi8(o, bsw));
+            const uint32_t p = (uint32_t)__builtin_popcount(m);
+            k += p; ctr += 8 - p;
+        }
+    }
+    /* loop 3 */
+    memcpy(ls + CODES, ls + CSRC, 16 * q3);
+    /* loop 4: entries past the list are what the LS holds after loop 3 (the
+     * copied codes and on); every group is built from that state before any
+     * is stored (see the guard above), and the codes are copied first */
+    {
+        uint16_t* const C = E + IDX_MAXE;
+        /* the entries the groups take (the 8-lane loads read past them, but
+         * the permutes use only those) */
+        uint32_t need = 8 * G;
+        for (uint32_t g = 0; g < G; g++) {
+            const uint32_t cw = ls_rd16(ls, CODES + 2 * g);
+            C[g] = (uint16_t)cw;
+            need += 2 * (uint32_t)__builtin_popcount(cw & (cw >> 1) & 0x5555);
+        }
+        for (uint32_t e = nl; e < need; e++) E[e] = (uint16_t)ls_rd16(ls, LIST + 2 * e);
+        /* Two triangles per step: one two-source permute of the previous
+         * pair (its second triangle in lanes 3..5) and the next entries, by
+         * the pair's four code bits (k_idx_pair); the result is the next
+         * step's previous pair. */
+        __m128i prev = _mm_setzero_si128();
+        uint32_t pos = 0;
+        uint8_t* o = ls + B;
+        for (uint32_t g = 0; g < G; g++) {
+            const uint32_t cw = C[g];
+            for (int h = 12; h >= 0; h -= 4, o += 12) {
+                const uint32_t nib = (cw >> h) & 15;
+                const __m128i en = _mm_loadu_si128((const __m128i*)(E + pos));
+                prev = _mm_permutex2var_epi16(prev, _mm_load_si128((const __m128i*)k_idx_pair[nib]), en);
+                _mm_mask_storeu_epi16(o, 0x3F, _mm_shuffle_epi8(prev, bsw));
+                pos += k_idx_take[nib];
+            }
+        }
+    }
+    /* 0x64A8: S+0x58 = the end */
+    ls_w32(ls, S + 0x58, END);
+    return 1;
+}
+
 /* ================================================================== the hooks
  *
  * A kernel is int core(u128* gpr, uint8_t* ls): it reads and writes only the
@@ -1616,6 +1928,7 @@ static EdgeKernel g_kern[] = {
     { .addr = 0xA798, .name = "cull", .core = edge_cull_core },
     { .addr = 0x4448, .name = "vertex decompression", .core = edge_dec_core, .env = "PS3RECOMP_NATIVE_EDGE_DEC", .exact = &g_dec_exact },
     { .addr = 0x99E8, .name = "vertex compression", .core = edge_enc_core, .cont = 0x98B0, .env = "PS3RECOMP_NATIVE_EDGE_ENC", .exact = &g_enc_exact },
+    { .addr = 0xC7B8, .name = "index decompression", .core = edge_idx_core, .env = "PS3RECOMP_NATIVE_EDGE_IDX" },
 };
 #define NKERN ((int)(sizeof g_kern / sizeof g_kern[0]))
 
@@ -1623,7 +1936,8 @@ static EdgeKernel g_kern[] = {
 int edge_skin_native(spu_context* c) { return edge_skin_core(c->gpr, c->ls); }
 EdgeCore edge_core_for(uint32_t addr)
 {
-    if (!g_wtab[255]) { rsq_init(); wtab_init(); fnms_init(); dec_tables_init(); }
+    if (!g_wtab[255]) { rsq_init(); wtab_init(); fnms_init(); dec_tables_init(); idx_tables_init(); }
+    if (getenv("PS3RECOMP_EDGE_DEC_LAYOUT")) g_dec_layout = atoi(getenv("PS3RECOMP_EDGE_DEC_LAYOUT")) != 0;
     for (int i = 0; i < NKERN; i++) if (g_kern[i].addr == addr) return g_kern[i].core;
     return 0;
 }
@@ -1661,7 +1975,11 @@ static void edge_init(void)
         if (!s_cap_every) s_cap_every = 1;
         s_cap_dir = dir;
     }
-    rsq_init(); wtab_init(); fnms_init(); dec_tables_init();
+    rsq_init(); wtab_init(); fnms_init(); dec_tables_init(); idx_tables_init();
+    {
+        const char* dl = getenv("PS3RECOMP_EDGE_DEC_LAYOUT");
+        g_dec_layout = dl ? atoi(dl) != 0 : 1;
+    }
     for (int i = 0; i < NKERN; i++) {
         EdgeKernel* k = &g_kern[i];
         const char* ke = k->env ? getenv(k->env) : 0;
@@ -1672,6 +1990,7 @@ static void edge_init(void)
             mode_name(m), s_cap_dir ? ", capturing to " : "", s_cap_dir ? s_cap_dir : "");
     for (int i = 0; i < NKERN; i++)
         if (g_kern[i].env) fprintf(stderr, "[edge]   %s (0x%X): %s (%s)\n", g_kern[i].name, g_kern[i].addr, mode_name(g_kern[i].mode), g_kern[i].env);
+    if (!g_dec_layout) fprintf(stderr, "[edge]   vertex decompression: strict overlap guard (PS3RECOMP_EDGE_DEC_LAYOUT=0)\n");
     __atomic_store_n(&s_init, 1, __ATOMIC_RELEASE);
 }
 static void edge_stats(void)
@@ -1686,6 +2005,15 @@ static void edge_stats(void)
         if (!k->calls) continue;
         fprintf(stderr, "[edge] %s (0x%X): %llu calls, %llu native, %llu lifted", k->name, k->addr, k->calls, k->native, k->fallback);
         if (k->exact) fprintf(stderr, ", %llu exact groups", __atomic_load_n(k->exact, __ATOMIC_RELAXED));
+        if ((k->core == edge_dec_core || k->core == edge_idx_core) && k->fallback) {
+            const int dec = k->core == edge_dec_core;
+            fprintf(stderr, " (lifted:");
+            for (int r = 0; r < (dec ? DEC_FB_N : IDX_FB_N); r++) {
+                const unsigned long long v = __atomic_load_n(dec ? &g_dec_fb[r] : &g_idx_fb[r], __ATOMIC_RELAXED);
+                if (v) fprintf(stderr, " %llu %s", v, dec ? k_dec_fb_name[r] : k_idx_fb_name[r]);
+            }
+            fprintf(stderr, ")");
+        }
         if (k->mode == 2)
             fprintf(stderr, "; compared %llu, differ %llu; native %.2f us, lifted %.2f us per compared call",
                     k->cmp, k->bad, k->cmp ? k->ns_nat / 1e3 / k->cmp : 0.0, k->cmp ? k->ns_spu / 1e3 / k->cmp : 0.0);
@@ -1789,10 +2117,11 @@ EDGE_HOOK(1)
 EDGE_HOOK(2)
 EDGE_HOOK(3)
 EDGE_HOOK(4)
+EDGE_HOOK(5)
 int spu_native_register(int image_id, uint32_t addr, int (*fn)(spu_context*));
 __attribute__((constructor)) static void edge_register(void)
 {
-    static int (*const hooks[])(spu_context*) = { edge_hook_0, edge_hook_1, edge_hook_2, edge_hook_3, edge_hook_4 };
+    static int (*const hooks[])(spu_context*) = { edge_hook_0, edge_hook_1, edge_hook_2, edge_hook_3, edge_hook_4, edge_hook_5 };
     _Static_assert(sizeof hooks / sizeof hooks[0] == NKERN, "one hook per kernel");
     for (int i = 0; i < NKERN; i++) spu_native_register(EDGE_IMAGE, g_kern[i].addr, hooks[i]);
 }
