@@ -108,6 +108,22 @@ fi
 # Under an FPS limit the game never gets above it, so "slow" is 5 under it.
 fps_cap="${PS3RECOMP_FPS_LIMIT:-$(sed -n 's/^fps_limit *= *\([0-9]*\).*/\1/p' "$ROOT/user/settings.ini" 2>/dev/null | head -1)}"
 fps_cap="${fps_cap:-60}"
+# Every frame longer than PS3RECOMP_VK_HITCH ms leaves a "[vk hitch]" line:
+# pipeline builds, GPU waits, texture and target creation, what the walker,
+# the recording thread and the main PPU thread waited on (its longest lv2
+# call too), each thread's CPU time, run-queue wait and page faults. The
+# session of 07/11 had 90-125 ms frames and nothing in the log to say why.
+# Two frames at the limit by default (33 ms at 60, 25 ms at 120 or with no
+# limit); it costs a clock read per hook and ~6 us per present.
+# PS3RECOMP_VK_HITCH=-1 turns it off; PS3RECOMP_VK_HITCH_SCHED=0 keeps the
+# line but drops the /proc sampling.
+if [ -z "${PS3RECOMP_VK_HITCH:-}" ]; then
+    hitch_ms=25
+    if [ "$fps_cap" -gt 0 ] 2>/dev/null && [ $((2000 / fps_cap)) -gt 25 ]; then
+        hitch_ms=$((2000 / fps_cap))
+    fi
+    export PS3RECOMP_VK_HITCH=$hitch_ms
+fi
 if [ -z "${PLAY_PROFILE_BELOW:-}" ]; then
     PLAY_PROFILE_BELOW=70
     if [ "$fps_cap" -gt 0 ] 2>/dev/null && [ $((fps_cap - 5)) -lt 70 ]; then PLAY_PROFILE_BELOW=$((fps_cap - 5)); fi
