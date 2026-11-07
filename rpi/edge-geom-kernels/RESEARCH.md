@@ -494,7 +494,10 @@ records). Replaying the captures:
   each (128 registers then the LS) for `t_replay`.
 - `PS3RECOMP_NATIVE_EDGE_DEC` (0x4448), `PS3RECOMP_NATIVE_EDGE_ENC`
   (0x99E8) and `PS3RECOMP_NATIVE_EDGE_IDX` (0xC7B8): the same values, off
-  unless set, until a compare run in the game shows no difference. In compare mode the chunk runs lifted up to its
+  unless set, until a compare run in the game shows no difference.
+  `PS3RECOMP_EDGE_DEC_LAYOUT=0` puts back the strict overlap guard of
+  0x4448 (no spans of different loops may overlap), the kill switch for the
+  layout change of section 7.1; on by default within the kernel's switch. In compare mode the chunk runs lifted up to its
   continuation, and r80 is left out of the comparison. The stats line adds the
   groups the exact path redid.
 - `PS3RECOMP_EDGE_CAPTURE=dir[,count[,every]]` writes input states of real

@@ -1366,6 +1366,9 @@ long edge_dec_uv_selftest(uint8_t* ls)
 enum { DEC_FB_GENERIC, DEC_FB_COUNT, DEC_FB_SLOTS, DEC_FB_OVERLAP, DEC_FB_OTHER, DEC_FB_N };
 static const char* const k_dec_fb_name[DEC_FB_N] = { "generic formats", "zero count", "no free slot", "overlap", "other" };
 static unsigned long long g_dec_fb[DEC_FB_N];
+/* PS3RECOMP_EDGE_DEC_LAYOUT=0 restores the strict overlap guard (no spans of
+ * different loops may overlap), the kill switch for the layout change. */
+static int g_dec_layout = 1;
 #define DEC_FALLBACK(r) do { __atomic_fetch_add(&g_dec_fb[r], 1, __ATOMIC_RELAXED); return 0; } while (0)
 static int edge_dec_core(u128* gpr, uint8_t* ls)
 {
@@ -1411,16 +1414,17 @@ static int edge_dec_core(u128* gpr, uint8_t* ls)
      * tangents overwrite it in the job and in the kernel, which keeps that
      * order. Spans of one loop still may not overlap (phases 2 and 3). */
     Span s[14]; int ns = 0;
+    const int ph2 = g_dec_layout ? 2 : 1, ph3 = g_dec_layout ? 3 : 1;   /* 1: the strict guard of before */
     s[ns++] = (Span){ sp - 0x50, sp + 0x20, 1 };
     s[ns++] = (Span){ S + 0x50, S + 0x70, 1 };
     s[ns++] = (Span){ S + 0x170, S + 0x180, 1 };
     s[ns++] = (Span){ S, S + 0x50, 0 };
-    s[ns++] = (Span){ (k.U2 & LSQ) + 16 * k.n2, (k.U2 & LSQ) + 16 * (k.n2 + 2), 2 };
-    s[ns++] = (Span){ k.U1 & LSQ, (k.U1 & LSQ) + 16 * k.n2, 2 };
-    s[ns++] = (Span){ k.U2 & LSQ, (k.U2 & LSQ) + 16 * k.n2, 2 };
+    s[ns++] = (Span){ (k.U2 & LSQ) + 16 * k.n2, (k.U2 & LSQ) + 16 * (k.n2 + 2), ph2 };
+    s[ns++] = (Span){ k.U1 & LSQ, (k.U1 & LSQ) + 16 * k.n2, ph2 };
+    s[ns++] = (Span){ k.U2 & LSQ, (k.U2 & LSQ) + 16 * k.n2, ph2 };
     if (k.tan) {
-        s[ns++] = (Span){ (k.U3 & LSQ) + 16 * k.n2, (k.U3 & LSQ) + 16 * (k.n2 + 2), 3 };
-        s[ns++] = (Span){ k.U3 & LSQ, (k.U3 & LSQ) + 16 * k.n2, 3 };
+        s[ns++] = (Span){ (k.U3 & LSQ) + 16 * k.n2, (k.U3 & LSQ) + 16 * (k.n2 + 2), ph3 };
+        s[ns++] = (Span){ k.U3 & LSQ, (k.U3 & LSQ) + 16 * k.n2, ph3 };
     }
     s[ns++] = (Span){ k.P, k.P + 9 * k.n2, 0 };
     if (k.tan) s[ns++] = (Span){ k.P2, k.P2 + 3 * k.n2, 0 };
@@ -1933,6 +1937,7 @@ int edge_skin_native(spu_context* c) { return edge_skin_core(c->gpr, c->ls); }
 EdgeCore edge_core_for(uint32_t addr)
 {
     if (!g_wtab[255]) { rsq_init(); wtab_init(); fnms_init(); dec_tables_init(); idx_tables_init(); }
+    if (getenv("PS3RECOMP_EDGE_DEC_LAYOUT")) g_dec_layout = atoi(getenv("PS3RECOMP_EDGE_DEC_LAYOUT")) != 0;
     for (int i = 0; i < NKERN; i++) if (g_kern[i].addr == addr) return g_kern[i].core;
     return 0;
 }
@@ -1971,6 +1976,10 @@ static void edge_init(void)
         s_cap_dir = dir;
     }
     rsq_init(); wtab_init(); fnms_init(); dec_tables_init(); idx_tables_init();
+    {
+        const char* dl = getenv("PS3RECOMP_EDGE_DEC_LAYOUT");
+        g_dec_layout = dl ? atoi(dl) != 0 : 1;
+    }
     for (int i = 0; i < NKERN; i++) {
         EdgeKernel* k = &g_kern[i];
         const char* ke = k->env ? getenv(k->env) : 0;
@@ -1981,6 +1990,7 @@ static void edge_init(void)
             mode_name(m), s_cap_dir ? ", capturing to " : "", s_cap_dir ? s_cap_dir : "");
     for (int i = 0; i < NKERN; i++)
         if (g_kern[i].env) fprintf(stderr, "[edge]   %s (0x%X): %s (%s)\n", g_kern[i].name, g_kern[i].addr, mode_name(g_kern[i].mode), g_kern[i].env);
+    if (!g_dec_layout) fprintf(stderr, "[edge]   vertex decompression: strict overlap guard (PS3RECOMP_EDGE_DEC_LAYOUT=0)\n");
     __atomic_store_n(&s_init, 1, __ATOMIC_RELEASE);
 }
 static void edge_stats(void)
