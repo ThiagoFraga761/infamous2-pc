@@ -59,6 +59,8 @@ int main()
         unsetenv("PS3RECOMP_FULLRES_PARTICLES"); unsetenv("PS3RECOMP_ANISO"); unsetenv("PS3RECOMP_FOV_SCALE");
         unsetenv("PS3RECOMP_POST_AA"); unsetenv("PS3RECOMP_UPSCALE");
         unsetenv("PS3RECOMP_DOWNSCALE"); unsetenv("PS3RECOMP_SHARPEN");
+        unsetenv("PS3RECOMP_KBM"); unsetenv("PS3RECOMP_KBM_SENS");
+        unsetenv("PS3RECOMP_KBM_INVERT_Y"); unsetenv("PS3RECOMP_KBM_DEADZONE");
         port_settings b;
         CHECK(port_settings_load(&b, p2.c_str()) == 1);
         const unsigned pin = port_settings_from_env(&b);
@@ -172,6 +174,55 @@ int main()
         unsetenv("PS3RECOMP_POST_AA"); unsetenv("PS3RECOMP_UPSCALE");
         unsetenv("PS3RECOMP_DOWNSCALE"); unsetenv("PS3RECOMP_SHARPEN");
         remove(p5.c_str());
+    }
+    /* keyboard and mouse: round trip, clamping, the environment pinning,
+     * and the export cellPad reads */
+    {
+        const std::string p6 = std::string(dir) + "/kbm.ini";
+        /* The exports above set these: clear them, and the pins they made. */
+        unsetenv("PS3RECOMP_KBM"); unsetenv("PS3RECOMP_KBM_SENS");
+        unsetenv("PS3RECOMP_KBM_INVERT_Y"); unsetenv("PS3RECOMP_KBM_DEADZONE"); unsetenv("PS3RECOMP_KBM_MAP");
+        port_settings a; port_settings_defaults(&a);
+        port_settings_from_env(&a);
+        port_settings_defaults(&a);
+        CHECK(a.kbm == 1 && a.kbm_sens == 100 && a.kbm_invert_y == 0 && a.kbm_deadzone == 20 && !a.kbm_map[0]);
+        a.kbm = 0; a.kbm_sens = 235; a.kbm_invert_y = 1; a.kbm_deadzone = 5;
+        snprintf(a.kbm_map, sizeof a.kbm_map, "F=SQUARE, Q=NONE G=R2");
+        CHECK(port_settings_save(&a, p6.c_str()) == 0);
+        port_settings b;
+        CHECK(port_settings_load(&b, p6.c_str()) == 1);
+        CHECK(b.kbm == 0 && b.kbm_sens == 235 && b.kbm_invert_y == 1 && b.kbm_deadzone == 5);
+        CHECK(!strcmp(b.kbm_map, "F=SQUARE, Q=NONE G=R2"));
+        FILE* g = fopen(p6.c_str(), "w");
+        fputs("[keyboard]\nenabled = 2\nsensitivity = 9\ndeadzone = 0.7\ninvert_y = 1\n", g);
+        fclose(g);
+        CHECK(port_settings_load(&b, p6.c_str()) == 1);
+        CHECK(b.kbm == 1 && b.kbm_sens == 100 && b.kbm_deadzone == 20 && b.kbm_invert_y == 1);
+        g = fopen(p6.c_str(), "w");
+        fputs("[keyboard]\nsensitivity = 0.5\ndeadzone = 0.15\n", g);
+        fclose(g);
+        CHECK(port_settings_load(&b, p6.c_str()) == 1 && b.kbm_sens == 50 && b.kbm_deadzone == 15);
+        setenv("PS3RECOMP_KBM", "0", 1); setenv("PS3RECOMP_KBM_SENS", "1.5", 1);
+        const unsigned pin = port_settings_from_env(&b);
+        CHECK((pin & PORT_PIN_KBM) && (pin & PORT_PIN_KBM_SENS) && !(pin & PORT_PIN_KBM_DEADZONE));
+        CHECK(b.kbm == 0 && b.kbm_sens == 150);
+        CHECK(port_settings_save(&b, p6.c_str()) == 0);       /* pinned: the file keeps its own */
+        port_settings c;
+        CHECK(port_settings_load(&c, p6.c_str()) == 1 && c.kbm == 1 && c.kbm_sens == 50);
+        unsetenv("PS3RECOMP_KBM"); unsetenv("PS3RECOMP_KBM_SENS");
+        unsetenv("PS3RECOMP_KBM_INVERT_Y"); unsetenv("PS3RECOMP_KBM_DEADZONE"); unsetenv("PS3RECOMP_KBM_MAP");
+        port_settings_from_env(&c);
+        c.kbm_invert_y = 1;
+        snprintf(c.kbm_map, sizeof c.kbm_map, "G=R2");
+        port_settings_export(&c);
+        CHECK(getenv("PS3RECOMP_KBM") && !strcmp(getenv("PS3RECOMP_KBM"), "1"));
+        CHECK(getenv("PS3RECOMP_KBM_SENS") && !strcmp(getenv("PS3RECOMP_KBM_SENS"), "0.50"));
+        CHECK(getenv("PS3RECOMP_KBM_INVERT_Y") && !strcmp(getenv("PS3RECOMP_KBM_INVERT_Y"), "1"));
+        CHECK(getenv("PS3RECOMP_KBM_DEADZONE") && !strcmp(getenv("PS3RECOMP_KBM_DEADZONE"), "0.15"));
+        CHECK(getenv("PS3RECOMP_KBM_MAP") && !strcmp(getenv("PS3RECOMP_KBM_MAP"), "G=R2"));
+        unsetenv("PS3RECOMP_KBM"); unsetenv("PS3RECOMP_KBM_SENS");
+        unsetenv("PS3RECOMP_KBM_INVERT_Y"); unsetenv("PS3RECOMP_KBM_DEADZONE"); unsetenv("PS3RECOMP_KBM_MAP");
+        remove(p6.c_str());
     }
     /* field of view: clamped in the file, the scale's percent from the
      * environment, exported only when it widens anything (last: export

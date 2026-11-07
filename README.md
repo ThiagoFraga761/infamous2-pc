@@ -101,6 +101,7 @@ As de Empire City foram renderizadas em 2× (2560×1440) e reduzidas.</sub>
 | Áudio (Wwise no SPU) | ✅ Funciona |
 | Saves | ✅ Salvar, Continuar e autosave |
 | Controle | ✅ Xbox, DualShock 4 e DualSense via SDL2 |
+| Teclado e mouse | 🔧 Fase 1: WASD e mouse viram os analógicos, junto com o controle; a mira ainda segue a aceleração do jogo |
 | Dublagem e textos em português | ✅ `PS3_SYS_LANG=pt` (padrão) |
 | Resolução acima de 720p | ✅ Escala 2× (1440p) e 3× (4K) |
 | Desempenho | 🔧 54–130 fps conforme a área (veja a tabela abaixo); a meta é 120+ em todo lugar |
@@ -187,12 +188,19 @@ As opções ficam gravadas em `user/settings.ini`:
 | Idioma | dublagem e legendas, separadas |
 | Desempenho | predefinições, limite de FPS, contador de FPS, thread de gravação |
 | Controle e saves | controle detectado e teste de botões, pasta e backup dos saves, logs |
+| Teclado e mouse | liga e desliga, sensibilidade, inverter Y, início do giro, lista de teclas |
 
 | Tecla | O que faz |
 |---|---|
 | **F1**, ou **Select+Start** segurados | abre e fecha o menu durante o jogo |
 | **F11** ou **Alt+Enter** | tela cheia / janela |
-| **Esc** | fecha o jogo |
+| **Esc** | abre e fecha o menu, como o F1 (sair fica no menu) |
+| **WASD** / **mouse** | andar / câmera (o mouse é capturado no primeiro clique ou tecla; Alt+Tab e F1 soltam) |
+| **Botão esquerdo** / **direito** | R1 (atirar) / L1 (mirar) |
+| **Espaço**, **Shift**, **F**, **E** | Xis, Bola, Quadrado, Triângulo |
+| **Q** / **R** / **Ctrl** / **V** ou **botão do meio** | R2 / L2 / L3 / R3 |
+| **Enter** ou **P** / **Tab** | Start / Select |
+| **Setas** ou **1-4** | direcional |
 
 - **Pular o menu:** `work/play.sh --play` ou `PS3_SKIP_LAUNCHER=1`; direto na tela
   de jogo novo: `work/play.sh --title`.
@@ -407,6 +415,7 @@ no emulator:
 | Audio (Wwise on the SPU) | ✅ Works |
 | Saves | ✅ Save, continue, autosave |
 | Controller | ✅ Xbox, DualShock 4, DualSense through SDL2 |
+| Keyboard and mouse | 🔧 Phase 1: WASD and the mouse drive the sticks, alongside a pad; aiming still has the game's stick acceleration |
 | Brazilian Portuguese dub and text | ✅ `PS3_SYS_LANG=pt` (default) |
 | Above 720p | ✅ 2× (1440p) and 3× (4K) resolution scale |
 | Performance | 🔧 54–130 fps by area (table below); the goal is 120+ everywhere |
@@ -482,7 +491,12 @@ that is not the autosave, they are copied to `user/backups`, since the game's
 next autosave writes over its autosave slot, as on the console. In game:
 **Start → Saved Data**.
 
-**F11**/**Alt+Enter** toggles full screen, and **Esc** quits. Environment
+**F11**/**Alt+Enter** toggles full screen, and **Esc** opens the menu like F1.
+Keyboard and mouse: WASD moves, the mouse turns the camera (captured on the
+first click or key, released by Alt+Tab and F1), left button R1 (shoot),
+right button L1 (aim), Space/Shift/F/E cross/circle/square/triangle, Q/R
+R2/L2, Enter START, Tab SELECT, arrows or 1-4 the D-pad; `[keyboard] map`
+in `user/settings.ini` rebinds keys, `PS3RECOMP_KBM=0` turns it off. Environment
 variables still win over the file. Useful
 variables:
 

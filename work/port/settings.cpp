@@ -57,6 +57,10 @@ void port_settings_defaults(port_settings* s)
     s->skip_launcher = 0;
     s->fullres_particles = 1;
     s->aniso = 16;
+    s->kbm = 1;
+    s->kbm_sens = 100;
+    s->kbm_invert_y = 0;
+    s->kbm_deadzone = 20;
 }
 
 static std::string trim(const std::string& t)
@@ -93,6 +97,18 @@ static std::string sharpen_text(int v)
     char b[16];
     snprintf(b, sizeof b, "%.2f", v / 1000.0);
     return b;
+}
+
+/* A decimal in [lo, hi] as hundredths ("1.25" is 125), else the old value. */
+static void set_hundredths(int* dst, const std::string& v, int lo, int hi)
+{
+    char* end = nullptr;
+    errno = 0;
+    const double d = strtod(v.c_str(), &end);
+    if (errno || end == v.c_str() || *end) return;
+    const long n = lround(d * 100.0);
+    if (n < lo || n > hi) return;
+    *dst = (int)n;
 }
 
 /* An integer in [lo, hi], else the old value. */
@@ -154,6 +170,12 @@ int port_settings_load(port_settings* s, const char* path)
             if (k == "fullres_particles") set_int(&s->fullres_particles, v, 0, 1);
             else if (k == "aniso") set_int(&s->aniso, v, 0, 16);
             else if (k == "enabled") snprintf(s->mods_on, sizeof s->mods_on, "%s", v.c_str());
+        } else if (section == "keyboard") {
+            if (k == "enabled") set_int(&s->kbm, v, 0, 1);
+            else if (k == "sensitivity") set_hundredths(&s->kbm_sens, v, 10, 500);
+            else if (k == "invert_y") set_int(&s->kbm_invert_y, v, 0, 1);
+            else if (k == "deadzone") set_hundredths(&s->kbm_deadzone, v, 0, 60);
+            else if (k == "map") snprintf(s->kbm_map, sizeof s->kbm_map, "%s", v.c_str());
         }
     }
     fclose(f);
@@ -181,6 +203,10 @@ int port_settings_save(const port_settings* in, const char* path)
     if (s_pinned & PORT_PIN_UPSCALE)       out.upscale = s_file.upscale;
     if (s_pinned & PORT_PIN_DOWNSCALE)     out.downscale = s_file.downscale;
     if (s_pinned & PORT_PIN_SHARPEN)       out.sharpen = s_file.sharpen;
+    if (s_pinned & PORT_PIN_KBM)           out.kbm = s_file.kbm;
+    if (s_pinned & PORT_PIN_KBM_SENS)      out.kbm_sens = s_file.kbm_sens;
+    if (s_pinned & PORT_PIN_KBM_INVERT_Y)  out.kbm_invert_y = s_file.kbm_invert_y;
+    if (s_pinned & PORT_PIN_KBM_DEADZONE)  out.kbm_deadzone = s_file.kbm_deadzone;
     std::string dir = path;
     const size_t slash = dir.find_last_of("/\\");
     if (slash != std::string::npos) {
@@ -222,12 +248,19 @@ int port_settings_save(const port_settings* in, const char* path)
             "\n[mods]\n"
             "fullres_particles = %d ; fire, sparks, smoke at the picture's resolution\n"
             "aniso = %d             ; 0 = the game's own, 2..16\n"
-            "enabled = %s ; mod folders under mods/, in load order (later wins)\n",
+            "enabled = %s ; mod folders under mods/, in load order (later wins)\n"
+            "\n[keyboard]\n"
+            "enabled = %d     ; keyboard and mouse play the game (WASD, mouse = camera)\n"
+            "sensitivity = %.2f ; mouse, 0.10..5.00\n"
+            "invert_y = %d\n"
+            "deadzone = %.2f    ; where the stick starts on the smallest motion, 0..0.60\n"
+            "map = %s ; Key=BUTTON over the default layout, e.g. F=SQUARE Q=NONE\n",
             s->scale, s->fullscreen, s->vsync, s->stretch, s->display,
             k_aa_names[s->post_aa], k_up_names[s->upscale], k_down_names[s->downscale],
             sharpen_text(s->sharpen).c_str(), s->fov,
             s->voice, s->text, s->fps_limit, s->fps_counter, s->record_thread,
-            s->skip_launcher, s->fullres_particles, s->aniso, s->mods_on);
+            s->skip_launcher, s->fullres_particles, s->aniso, s->mods_on,
+            s->kbm, s->kbm_sens / 100.0, s->kbm_invert_y, s->kbm_deadzone / 100.0, s->kbm_map);
     const int ok = fclose(f) == 0;
 #ifdef _WIN32
     /* The CRT's rename() refuses an existing target. */
@@ -287,6 +320,11 @@ unsigned port_settings_from_env(port_settings* s)
     if ((v = getenv("PS3RECOMP_BE_THREAD")))     { s->record_thread = env_on(v); pin |= PORT_PIN_RECORD_THREAD; }
     if ((v = getenv("PS3RECOMP_FULLRES_PARTICLES"))) { s->fullres_particles = env_on(v); pin |= PORT_PIN_PARTICLES; }
     if ((v = getenv("PS3RECOMP_ANISO")))         { s->aniso = atoi(v) < 0 ? 0 : atoi(v) > 16 ? 16 : atoi(v); pin |= PORT_PIN_ANISO; }
+    /* cellPad's reading of PS3RECOMP_KBM: anything but a leading '0' is on. */
+    if ((v = getenv("PS3RECOMP_KBM")))           { s->kbm = v[0] != '0'; pin |= PORT_PIN_KBM; }
+    if ((v = getenv("PS3RECOMP_KBM_SENS")))      { set_hundredths(&s->kbm_sens, v, 10, 500); pin |= PORT_PIN_KBM_SENS; }
+    if ((v = getenv("PS3RECOMP_KBM_INVERT_Y")))  { s->kbm_invert_y = env_on(v); pin |= PORT_PIN_KBM_INVERT_Y; }
+    if ((v = getenv("PS3RECOMP_KBM_DEADZONE")))  { set_hundredths(&s->kbm_deadzone, v, 0, 60); pin |= PORT_PIN_KBM_DEADZONE; }
     s_pinned = pin;
     return pin;
 }
@@ -351,6 +389,11 @@ void port_settings_export(const port_settings* s)
     snprintf(b, sizeof b, "%d", s->aniso);         put("PS3RECOMP_ANISO", b);
     put("PS3RECOMP_FULLRES_PARTICLES", s->fullres_particles ? "1" : "0");
     if (s->skip_launcher) put("PS3_SKIP_LAUNCHER", "1");
+    put("PS3RECOMP_KBM", s->kbm ? "1" : "0");
+    snprintf(b, sizeof b, "%.2f", s->kbm_sens / 100.0);     put("PS3RECOMP_KBM_SENS", b);
+    put("PS3RECOMP_KBM_INVERT_Y", s->kbm_invert_y ? "1" : "0");
+    snprintf(b, sizeof b, "%.2f", s->kbm_deadzone / 100.0); put("PS3RECOMP_KBM_DEADZONE", b);
+    if (s->kbm_map[0]) put("PS3RECOMP_KBM_MAP", s->kbm_map);
     /* The enabled mods that are there, as the paths the filesystem overlays
      * (runtime/ppu/ppu_fs.cpp, mod_overlay). */
     std::string mods;
