@@ -83,8 +83,9 @@ O histórico completo está no [CHANGELOG.md](CHANGELOG.md).
 - **Teclado e mouse (fase 1):** WASD e o mouse viram os analógicos, junto com
   o controle. Sensibilidade, inversão do eixo e teclas no menu e no
   `settings.ini`.
-- **Ultrawide experimental:** Hor+ com o alvo de render mais largo, só por
-  variável de ambiente (o HUD ainda estica). Veja
+- **Ultrawide experimental:** F1 > Vídeo > Ultrawide desenha o mundo no formato
+  do monitor (Hor+) e põe o HUD, os menus e os vídeos em 16:9 no centro. Na área
+  pesada a 3440×1440 custa ~7% (108 → 101 fps). Veja
   [docs/OPCOES.md](docs/OPCOES.md#2-ultrawide-e-fov).
 - **Caixa-preta das travas:** a cada parada, o estado do runtime (fences, job
   chains, SPURS, eventos) vai para `work/runs/freezes/`, e cada frame lento
@@ -111,7 +112,7 @@ Tudo o que é novo e vem ligado tem um kill switch por variável de ambiente
 | Resolução acima de 720p | ✅ 1440p, 4K e 5K (supersampling) |
 | AA e upscaling | ✅ FXAA, SMAA 1x, FSR 1, redução por área |
 | Campo de visão | ✅ Ajustável no menu |
-| Ultrawide (Hor+) | 🧪 Experimental, só por variável; HUD esticado |
+| Ultrawide (Hor+) | 🧪 Experimental: F1 > Vídeo > Ultrawide; HUD em 16:9 no centro |
 | Desempenho | ✅ 60 fps estáveis com o limite padrão; 100+ sem limite na área mais pesada medida |
 | Engasgos | 🔧 As travadas de segundos sumiram; com cache frio, a primeira vez de um efeito ainda pode custar um frame |
 | Travamentos | 🔧 Deadlock raro, sem causa achada; a caixa-preta grava o estado quando acontece |
@@ -335,8 +336,9 @@ correspondente. Eles não contêm arquivos do jogo.
   fica parada no guard `0x00B15000`. Foi visto em 16, 17 e 18/10, uma vez a
   cada 15–60 min de jogo. A causa ainda não foi achada; a sessão de 07/11 não
   teve nenhum. Se acontecer, a caixa-preta acima grava o estado.
-- **Ultrawide Hor+ é experimental:** só por variável de ambiente, e o HUD, os
-  menus e os vídeos saem esticados. Sem ele, o 16:9 aparece com barras ou
+- **Ultrawide Hor+ é experimental:** o HUD centralizado só foi conferido em
+  bench sem janela, e os marcadores presos ao mundo (alvos, ícones sobre
+  pessoas) ainda usam a posição 16:9. Desligado, o 16:9 aparece com barras ou
   esticado, e o campo de visão do menu funciona normalmente.
 - **Teclado e mouse, fase 1:** a mira passa pela aceleração do analógico do
   próprio jogo, então não é 1:1. Remapear teclas só pelo `settings.ini`.
@@ -487,8 +489,9 @@ Full history in [CHANGELOG.md](CHANGELOG.md).
 - **Keyboard and mouse (phase 1):** WASD and the mouse drive the sticks,
   alongside a pad. Sensitivity, axis inversion and keys in the menu and in
   `settings.ini`.
-- **Experimental ultrawide:** Hor+ with a wider render target, through
-  environment variables only (the HUD still stretches). See
+- **Experimental ultrawide:** F1 > Video > Ultrawide draws the world in the
+  monitor's shape (Hor+) and puts the HUD, menus and videos in a centred 16:9.
+  In the heavy area at 3440×1440 it costs ~7% (108 → 101 fps). See
   [docs/OPCOES.md](docs/OPCOES.md#2-ultrawide-e-fov).
 - **Freeze black box:** every stall writes the runtime's state (fences, job
   chains, SPURS, events) to `work/runs/freezes/`, and every slow frame leaves a
@@ -514,7 +517,7 @@ Everything new that is on by default has an environment kill switch
 | Above 720p | ✅ 1440p, 4K and 5K (supersampling) |
 | AA and scaling | ✅ FXAA, SMAA 1x, FSR 1, area downscale |
 | Field of view | ✅ Adjustable in the menu |
-| Ultrawide (Hor+) | 🧪 Experimental, environment only; HUD stretched |
+| Ultrawide (Hor+) | 🧪 Experimental: F1 > Video > Ultrawide; HUD centred in 16:9 |
 | Performance | ✅ Steady 60 fps with the default cap; 100+ uncapped in the heaviest area measured |
 | Stutter | 🔧 The seconds-long hitches are gone; with a cold cache, the first time an effect appears can still cost a frame |
 | Freezes | 🔧 Rare deadlock, cause not found; the black box records the state when it happens |
@@ -650,8 +653,9 @@ hold no game files.
   main thread waits on an event flag and job chain `0x00B19600` sits at guard
   `0x00B15000`. Seen on Oct 16, 17 and 18, about once per 15–60 minutes of
   play. The cause is not found yet, and the 2026-11-07 session had none.
-- **Ultrawide Hor+ is experimental:** environment only, with the HUD, menus
-  and videos stretched.
+- **Ultrawide Hor+ is experimental:** the centred HUD was only checked in a
+  windowless bench, and markers pinned to the world (targets, icons over
+  people) still use the 16:9 position.
 - **Keyboard and mouse, phase 1:** aiming goes through the game's stick
   acceleration, not 1:1. Keys are rebound only in `settings.ini`.
 - **AA runs after the HUD,** so HUD text is a little softer.

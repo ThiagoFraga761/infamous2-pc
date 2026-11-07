@@ -35,7 +35,7 @@ Ryzen 7 9800X3D + Radeon RX 9070 XT, Fedora 44, render em 1280×720:
 
 | Cena | Condição | Resultado |
 |---|---|---|
-| Área mais pesada da cidade (~9 mil draws por frame) | bench, sem limite | **107,7 fps** (90,6 antes da última leva de otimizações) |
+| Área mais pesada da cidade (~9 mil draws por frame) | bench, sem limite | **108 fps** (90,6 antes das duas últimas levas de otimizações) |
 | Sessão de jogo normal | limite de 60 (padrão) | 59–60 fps, p99 médio de 21 ms, nenhuma travada |
 
 Antes deste release, depois de um update do driver, havia frames de 2,7 s e
@@ -49,7 +49,7 @@ tem um cache de shaders próprio.
   diferença em ~2,5 milhões de chamadas comparadas.
 - Cadeia de pós (AA, FSR 1, redução) e escala 5K.
 - Teclado e mouse (fase 1).
-- Ultrawide Hor+ experimental, só por variável de ambiente.
+- Ultrawide Hor+ experimental (F1 > Vídeo > Ultrawide): mundo no formato do monitor, HUD, menus e vídeos centralizados em 16:9. Na área pesada a 3440×1440 custa ~7% (108 → 101 fps).
 - Caixa-preta das travas e linha `[vk hitch]` com a causa de cada frame lento.
 - Saves atômicos.
 
@@ -82,7 +82,7 @@ Requisitos:
 
 - Deadlock raro no meio do jogo (a imagem para e o áudio continua), ainda sem
   causa. Se acontecer, mande o log e a pasta `work/runs/freezes/`.
-- No Hor+ experimental, o HUD, os menus e os vídeos saem esticados.
+- Ultrawide: o HUD centralizado foi conferido só em bench sem janela; os marcadores presos ao mundo (alvos, ícones sobre pessoas) ainda usam a posição 16:9.
 - Teclado e mouse: a mira ainda passa pela aceleração do analógico do jogo.
 - **Windows não testado**: o build com MinGW linka, mas ninguém o rodou.
 
@@ -109,7 +109,7 @@ Ryzen 7 9800X3D + Radeon RX 9070 XT, Fedora 44, rendering at 1280×720:
 
 | Scene | Condition | Result |
 |---|---|---|
-| Heaviest city area (~9,000 draws a frame) | bench, uncapped | **107.7 fps** (90.6 before the last optimization wave) |
+| Heaviest city area (~9,000 draws a frame) | bench, uncapped | **108 fps** (90.6 before the last two optimization waves) |
 | Normal play session | 60 cap (default) | 59–60 fps, 21 ms average p99, no hitch |
 
 Before this release, after a driver update, there were 2.7 s frames and a
@@ -123,7 +123,7 @@ has a shader cache of its own.
   million compared calls.
 - A post chain (AA, FSR 1, downscale) and a 5K scale.
 - Keyboard and mouse (phase 1).
-- Experimental ultrawide Hor+, through environment variables only.
+- Experimental ultrawide Hor+ (F1 > Video > Ultrawide): the world in the monitor's shape, the HUD, menus and videos centred in 16:9. In the heavy area at 3440×1440 it costs ~7% (108 → 101 fps).
 - A freeze black box, and a `[vk hitch]` line with the cause of every slow
   frame.
 - Atomic saves.
@@ -158,7 +158,7 @@ Requirements:
 
 - A rare mid-game deadlock (the picture stops, the audio goes on), cause not
   found yet. If it happens, send the log and the `work/runs/freezes/` folder.
-- In the experimental Hor+, the HUD, menus and videos are stretched.
+- Ultrawide: the centred HUD was only checked in a windowless bench; markers pinned to the world (targets, icons over people) still use the 16:9 position.
 - Keyboard and mouse: aiming still goes through the game's stick
   acceleration.
 - **Windows untested**: the MinGW build links, but nobody has run it.

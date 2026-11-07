@@ -73,9 +73,13 @@ Sem nada definido, o 16:9 aparece com barras pretas, ou esticado com
 `stretch = 1`. O controle de **campo de visão** do F1 alarga a vista dentro do
 16:9 e funciona em qualquer monitor.
 
-O Hor+ de verdade, com o alvo de render mais largo, existe só por variável e é
-experimental: **o HUD, os menus e os vídeos saem esticados** (a fase 3, com HUD
-centralizado, não foi feita).
+O Hor+ de verdade, com o alvo de render mais largo, é experimental. O jeito
+simples é **F1 > Vídeo > Ultrawide** (`[video] ultrawide = 1` no
+`settings.ini`, vale depois de reiniciar): o port lê o formato do monitor e
+liga `RT_ASPECT=auto` e `ASPECT=auto` juntos. O HUD, os menus e os vídeos ficam
+em 16:9 no centro (vídeos e telas 2D em pillarbox). Os marcadores presos ao
+mundo (alvos, ícones sobre pessoas) ainda usam a posição 16:9. Custo medido na
+área pesada a 3440×1440: 108 → 101 fps.
 
 | Variável | Padrão | Efeito |
 |---|---|---|
@@ -84,6 +88,12 @@ centralizado, não foi feita).
 | `PS3RECOMP_ASPECT` | desligado | Força o aspecto do frustum (wrap do `CView::SetFov`). Sozinho, com o alvo em 1280×720, a imagem sai espremida: serve para medir o custo de CPU |
 | `PS3RECOMP_RES_AXIS` | ligado | `0` ignora as três de cima e volta à escala inteira |
 | `PS3RECOMP_EDGE_VP` | ligado | `0` desliga o ajuste de viewport do Edge (também por eixo) |
+| `PS3RECOMP_UW_HUD` | ligado quando o alvo 1280×720 é desenhado largo | `0` (ou `stretch`) estica o HUD junto com a imagem |
+| `PS3RECOMP_UW_HUD_LOG` | desligado | `1` loga cada veredito novo (alvo, par de programas `vp:fp`, centralizado/largo) e uma contagem a cada 600 frames |
+| `PS3RECOMP_UW_WIDE`, `PS3RECOMP_UW_CENTER` | vazio | Força largo ou centralizado por par de programas (`<vp>:<fp>,...`, hashes do log) |
+| `PS3RECOMP_UW_HUD_TARGETS` | vazio | Outros alvos de cor (hex) onde a UI é desenhada, além dos display buffers |
+| `PS3RECOMP_UW_EVAL` | ligado | `0` não roda o vertex program na CPU para classificar quads de largura toda |
+| `PS3RECOMP_UW_PRECLEAR` | ligado | `0` não limpa de preto as barras do pillarbox |
 
 Exemplo, 3440×1440 Hor+:
 
@@ -279,9 +289,11 @@ checked against the code on 2026-11-07.
   `PS3RECOMP_FOV_SCALE` (the F1 field-of-view slider), `PS3RECOMP_ANISO`,
   `PS3RECOMP_FULLRES_PARTICLES`. Opt-in, env-only and not validated in game:
   shadow and reflection scale, wider shadow PCF, user clip planes.
-- **Ultrawide** (section 2): true Hor+ is env-only and experimental
-  (`PS3RECOMP_RT_ASPECT` + `PS3RECOMP_ASPECT` + `PS3RECOMP_RES_SCALE=2`); the
-  HUD, menus and videos are stretched.
+- **Ultrawide** (section 2): true Hor+ is experimental. F1 > Video >
+  Ultrawide (`[video] ultrawide = 1`, after a restart) reads the monitor's
+  shape and keeps the HUD, menus and videos in a centred 16:9; markers pinned
+  to the world still use the 16:9 position. `PS3RECOMP_UW_HUD=0` stretches the
+  HUD. ~7% slower at 3440x1440 in the heavy area.
 - **Performance** (section 3): `PS3RECOMP_FPS_LIMIT` (60 from the settings
   file), `PS3RECOMP_BE_THREAD`, `PS3_MAIN_WAITS=1` (opt-in: the main thread
   goes from 99% to 46% CPU under a 60 fps cap), pipeline warm-up and async

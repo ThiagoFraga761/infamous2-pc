@@ -82,9 +82,14 @@ do port e o patch do ps3recomp, sobre o upstream `42f5f8f`.
 - Escala 4× (5K, supersampling).
 - Campo de visão ajustável (do jogo até +30%), ao vivo, por um wrap do
   `CView::SetFov`.
-- Experimental, só por variável: escala de render por eixo para Hor+ em
-  ultrawide (`PS3RECOMP_RT_ASPECT`), sombra e reflexo com escala própria,
-  planos de corte do usuário e PCF largo na sombra.
+- Ultrawide experimental (F1 > Vídeo > Ultrawide, ou `PS3RECOMP_RT_ASPECT`):
+  escala de render por eixo para Hor+, e o HUD, os menus e os vídeos em 16:9
+  no centro (`PS3RECOMP_UW_HUD=0` estica como antes). Custo medido a
+  3440×1440 na área pesada: 108 → 101 fps.
+- Experimental, só por variável: sombra e reflexo com escala própria, planos
+  de corte do usuário e PCF largo na sombra.
+- Edge nativo (descompressão e compressão de vértices) ligado por padrão.
+- Gravação Vulkan só do estado de draw que mudou.
 
 **Controles**
 
@@ -104,7 +109,7 @@ do port e o patch do ps3recomp, sobre o upstream `42f5f8f`.
 
 - Deadlock raro no meio do jogo (imagem para, áudio continua), sem causa
   achada.
-- No Hor+ experimental, o HUD, os menus e os vídeos saem esticados.
+- Ultrawide: o HUD centralizado foi conferido só em bench sem janela; os marcadores presos ao mundo ainda usam a posição 16:9.
 - Teclado e mouse na fase 1: a mira passa pela aceleração do analógico do
   jogo.
 - Windows: o build com MinGW linka, mas nunca foi testado.

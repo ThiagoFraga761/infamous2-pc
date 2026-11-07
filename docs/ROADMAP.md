@@ -60,7 +60,7 @@ em qualquer área do jogo, e depois **4K a 120 com upscaling**. Estado em
 | Kernel de índices Edge (0xC7B8) | Escrito e testado fora do jogo (`PS3RECOMP_NATIVE_EDGE_IDX`); falta a comparação em jogo (modo 2) antes de ligar por padrão |
 | `PS3_MAIN_WAITS` | Com limite de 60, a main cai de 99% para 46% de CPU, com p99 de 16,9 para 17,7 ms. Falta decidir se vira padrão |
 | `PS3RECOMP_BQ_TEXBUILD` | Ligado no fork, fixado em 0 no port até um A/B de p99 numa área nova |
-| Ultrawide Hor+ | Fases 1 (FOV) e 2 (escala por eixo, sombra e reflexo com escala própria) feitas. Ainda só por variável e sem medição de custo em 21:9 |
+| Ultrawide Hor+ | Fases 1 (FOV), 2 (escala por eixo) e 3 (HUD, menus e vídeos em 16:9 no centro, opção no F1) feitas; custa ~7% a 3440×1440 na área pesada. Falta conferir o HUD numa janela ultrawide de verdade e a fase 3b (marcadores presos ao mundo) |
 | Planos de corte e PCF largo | Implementados e opt-in (`PS3RECOMP_CLIP_PLANES`, `PS3RECOMP_SHADOW_PCF`); falta conferir em jogo se o reflexo da água usa o 0x1478 e qual é o sinal certo |
 
 ## Próximos
@@ -79,12 +79,10 @@ em qualquer área do jogo, e depois **4K a 120 com upscaling**. Estado em
 
 **Ultrawide e imagem:**
 
-1. HUD, menus e vídeos centralizados no Hor+ (fase 3); depois, os marcadores
-   do HUD presos ao mundo e o culling alargado.
-2. Opção de ultrawide no menu (um campo `[video] rt_aspect`), com o aspecto
-   lido da janela.
-3. AA antes do HUD (o SMAA hoje amolece o texto).
-4. Upscaler temporal (FSR 3.1 ou XeSS no Vulkan), se a GPU apertar em 4K ou
+1. Conferir o HUD centralizado numa janela ultrawide de verdade; depois, os
+   marcadores do HUD presos ao mundo (fase 3b) e o culling alargado.
+2. AA antes do HUD (o SMAA hoje amolece o texto).
+3. Upscaler temporal (FSR 3.1 ou XeSS no Vulkan), se a GPU apertar em 4K ou
    em 3440.
 5. Distância de desenho e LOD maiores, HDR e pacote de texturas em alta.
 
@@ -156,7 +154,7 @@ everywhere in the game; then **4K at 120 with upscaling**. State on
   are all at 85–91%.
 - **Edge index kernel, `PS3_MAIN_WAITS`, `PS3RECOMP_BQ_TEXBUILD`:** written,
   opt-in, waiting for in-game measurements before they become defaults.
-- **Ultrawide Hor+:** phases 1 and 2 done, environment only.
+- **Ultrawide Hor+:** phases 1-3 done (FOV, per-axis scale, centred 16:9 HUD, F1 option); ~7% at 3440x1440 in the heavy area. Phase 3b (world-pinned markers) left.
 - **User clip planes and wider shadow PCF:** opt-in, not checked in game.
 
 ## Next
@@ -168,8 +166,8 @@ everywhere in the game; then **4K at 120 with upscaling**. State on
   - one full PPU rebuild for the VMX and indirect-call work;
   - the object-system rewrite for the 11k-draw views.
 - **Ultrawide and picture:**
-  - a centred HUD, menus and videos in Hor+;
-  - an ultrawide menu option;
+  - checking the centred HUD in a real ultrawide window, then world-pinned
+    markers (phase 3b);
   - AA before the HUD;
   - a temporal upscaler if the GPU gets tight;
   - longer draw distance, HDR, high-resolution textures.
