@@ -290,13 +290,21 @@ static void normalize_ls(uint8_t* ls, uint32_t p, uint32_t from, uint32_t n8, ui
 }
 
 /* ------------------------------------------------------------------ overlap guard */
+/* w: 0 read, 1 written. A kernel whose job writes its outputs in separate
+ * phases (one loop after another) may tag them with the phase, w = 2, 3, ...,
+ * and write them in that order too: two written spans of different phases
+ * may then overlap, because the later phase overwrites the earlier one in
+ * both codes and the final bytes agree. Spans of one phase are written
+ * interleaved, so they still may not overlap, nor may any written span and a
+ * read one. */
 typedef struct { uint32_t lo, hi; int w; } Span;
 static int spans_ok(const Span* s, int n)
 {
     for (int i = 0; i < n; i++) {
         if (s[i].hi > SPU_LS_SIZE || s[i].lo > s[i].hi) return 0;
         for (int j = i + 1; j < n; j++)
-            if ((s[i].w || s[j].w) && s[i].lo < s[j].hi && s[j].lo < s[i].hi) return 0;
+            if ((s[i].w || s[j].w) && s[i].lo < s[j].hi && s[j].lo < s[i].hi &&
+                !(s[i].w >= 2 && s[j].w >= 2 && s[i].w != s[j].w)) return 0;
     }
     return 1;
 }
@@ -1350,28 +1358,35 @@ long edge_dec_uv_selftest(uint8_t* ls)
     return diff;
 }
 #endif
+/* Why the decompression kernel left a call to the lifted code, for the stats
+ * line: the in-game share of fallbacks is the cost still left in the lift, and
+ * each reason has a different fix. */
+enum { DEC_FB_GENERIC, DEC_FB_COUNT, DEC_FB_SLOTS, DEC_FB_OVERLAP, DEC_FB_OTHER, DEC_FB_N };
+static const char* const k_dec_fb_name[DEC_FB_N] = { "generic formats", "zero count", "no free slot", "overlap", "other" };
+static unsigned long long g_dec_fb[DEC_FB_N];
+#define DEC_FALLBACK(r) do { __atomic_fetch_add(&g_dec_fb[r], 1, __ATOMIC_RELAXED); return 0; } while (0)
 static int edge_dec_core(u128* gpr, uint8_t* ls)
 {
     const uint32_t S = gpr[3]._u32[0], T = gpr[4]._u32[0], D = gpr[5]._u32[0], sp = gpr[1]._u32[0];
-    if ((sp & 15) || sp < 0x400 || sp + 0x20 > SPU_LS_SIZE || (S & 15) || S + 0x180 > SPU_LS_SIZE) return 0;
+    if ((sp & 15) || sp < 0x400 || sp + 0x20 > SPU_LS_SIZE || (S & 15) || S + 0x180 > SPU_LS_SIZE) DEC_FALLBACK(DEC_FB_OTHER);
     /* the special format pair, tested on the aligned quads as the job does */
     const uint32_t F = word_at(ls, D + 44), F2 = word_at(ls, D + 0x30);
     const Q f0 = lq(ls, F), f1 = lq(ls, F + 16);
-    if ((f0._u32[0] >> 24) != 2 || (f0._u32[2] & 0xFF) != 1 || (f1._u32[0] & 0xFF) != 2) return 0;
+    if ((f0._u32[0] >> 24) != 2 || (f0._u32[2] & 0xFF) != 1 || (f1._u32[0] & 0xFF) != 2) DEC_FALLBACK(DEC_FB_GENERIC);
     if (F2) {
         const Q g = lq(ls, F2);
-        if ((g._u32[0] >> 24) != 1 || (g._u32[2] & 0xFF) != 3) return 0;
+        if ((g._u32[0] >> 24) != 1 || (g._u32[2] & 0xFF) != 3) DEC_FALLBACK(DEC_FB_GENERIC);
     }
     Dec k; memset(&k, 0, sizeof k);
     k.S = S; k.tan = F2 != 0;
     k.P = word_at(ls, D + 20); k.P2 = word_at(ls, D + 24);
     const uint32_t numv = lq(ls, S)._u32[2] >> 16;
-    if (!numv) return 0;                                  /* the job's loop would run 2^27 times */
+    if (!numv) DEC_FALLBACK(DEC_FB_COUNT);                /* the job's loop would run 2^27 times */
     k.n2 = (numv + 1) & ~1u;
     Q slots = lq(ls, S + 0x170);
     for (uint32_t j = 0; j < 2 + k.tan; j++) {
         const int i = dec_free_slot(slots);
-        if (i < 0) return 0;
+        if (i < 0) DEC_FALLBACK(DEC_FB_SLOTS);
         dec_set_slot(&slots, i, j + 1);
         k.slot[j] = i;
     }
@@ -1381,28 +1396,43 @@ static int edge_dec_core(u128* gpr, uint8_t* ls)
     k.X = V4(word_at(ls, X), word_at(ls, X + 4), word_at(ls, X + 8), word_at(ls, X + 12));
     const uint32_t b = lq(ls, T + 0x10)._u32[2] & 0xFF;
     k.shr = V4(b - 16, b - 16, b - 16, 0); k.shl = V4(16 + b, 16 + b, 16 + b, 32);
-    /* the overlap guard: outputs against each other and against everything read */
-    Span s[12]; int ns = 0;
+    /* The overlap guard: outputs against each other and against everything
+     * read. The job lays the uniform tables out back to back, 16 bytes times
+     * the count rounded up to 8 apart (0x7198, loop 0x7330), so with a count
+     * of 0 or 7 mod 8 the two zero quads past the normals are the first two
+     * tangents. That was the in-game fallback: a quarter of the segments
+     * with tangents. The two loops run one after the other: 0x4A30 writes
+     * the positions, the normals and the normals' zero quads, interleaved
+     * (its first iteration stores a pair of positions and then the zero
+     * quads), and only then does 0x4D18 write the tangents and their zero
+     * quads. So a span of the second loop may overlap one of the first: the
+     * tangents overwrite it in the job and in the kernel, which keeps that
+     * order. Spans of one loop still may not overlap (phases 2 and 3). */
+    Span s[14]; int ns = 0;
     s[ns++] = (Span){ sp - 0x50, sp + 0x20, 1 };
     s[ns++] = (Span){ S + 0x50, S + 0x70, 1 };
     s[ns++] = (Span){ S + 0x170, S + 0x180, 1 };
     s[ns++] = (Span){ S, S + 0x50, 0 };
-    s[ns++] = (Span){ k.U1 & LSQ, (k.U1 & LSQ) + 16 * k.n2, 1 };
-    s[ns++] = (Span){ k.U2 & LSQ, (k.U2 & LSQ) + 16 * (k.n2 + 2), 1 };
-    if (k.tan) s[ns++] = (Span){ k.U3 & LSQ, (k.U3 & LSQ) + 16 * (k.n2 + 2), 1 };
+    s[ns++] = (Span){ (k.U2 & LSQ) + 16 * k.n2, (k.U2 & LSQ) + 16 * (k.n2 + 2), 2 };
+    s[ns++] = (Span){ k.U1 & LSQ, (k.U1 & LSQ) + 16 * k.n2, 2 };
+    s[ns++] = (Span){ k.U2 & LSQ, (k.U2 & LSQ) + 16 * k.n2, 2 };
+    if (k.tan) {
+        s[ns++] = (Span){ (k.U3 & LSQ) + 16 * k.n2, (k.U3 & LSQ) + 16 * (k.n2 + 2), 3 };
+        s[ns++] = (Span){ k.U3 & LSQ, (k.U3 & LSQ) + 16 * k.n2, 3 };
+    }
     s[ns++] = (Span){ k.P, k.P + 9 * k.n2, 0 };
     if (k.tan) s[ns++] = (Span){ k.P2, k.P2 + 3 * k.n2, 0 };
     s[ns++] = (Span){ X & LSQ, (X & LSQ) + 32, 0 };
     s[ns++] = (Span){ 0x4000, 0xF6B0, 0 };              /* the module: tables, constants, code */
     s[ns++] = (Span){ D & LSQ, (D & LSQ) + 64, 0 };
-    if (!spans_ok(s, ns)) return 0;
-    if (((T + 0x10) & LSQ) + 16 > SPU_LS_SIZE || (F & LSQ) + 32 > SPU_LS_SIZE) return 0;
+    if (!spans_ok(s, ns)) DEC_FALLBACK(DEC_FB_OVERLAP);
+    if (((T + 0x10) & LSQ) + 16 > SPU_LS_SIZE || (F & LSQ) + 32 > SPU_LS_SIZE) DEC_FALLBACK(DEC_FB_OTHER);
     /* the outputs must not reach what the job reads after writing them: T, F, F2 */
     {
         const uint32_t rd[3] = { (T + 0x10) & LSQ, F & LSQ, F2 & LSQ };
         for (int r = 0; r < 3; r++)
             for (int i = 0; i < ns; i++)
-                if (s[i].w && rd[r] < s[i].hi && s[i].lo < rd[r] + 32) return 0;
+                if (s[i].w && rd[r] < s[i].hi && s[i].lo < rd[r] + 32) DEC_FALLBACK(DEC_FB_OVERLAP);
     }
 
     /* prologue */
@@ -1415,20 +1445,27 @@ static int edge_dec_core(u128* gpr, uint8_t* ls)
     }
     const int fast = g_dec_ok && k.P + 9 * (k.n2 + 2) + 16 <= SPU_LS_SIZE && (!k.tan || k.P2 + 3 * (k.n2 + 2) + 16 <= SPU_LS_SIZE) &&
                      !memcmp(ls + DEC_TAB, k_dec_tab_be, sizeof k_dec_tab_be);
+    /* Everything of the first loop before anything of the second (see the
+     * guard above); within a loop the spans are disjoint, so any order. */
+    sq(ls, k.U2 + 16 * k.n2, splat4(0)); sq(ls, k.U2 + 16 * k.n2 + 16, splat4(0));
     if (!fast || b > 16) dec_exact_pos(ls, &k);
     if (!fast) {
         dec_exact_uv(ls, k.P + 6, 9, k.U2, k.n2);
-        if (k.tan) dec_exact_uv(ls, k.P2, 3, k.U3, k.n2);
+        if (k.tan) {
+            sq(ls, k.U3 + 16 * k.n2, splat4(0)); sq(ls, k.U3 + 16 * k.n2 + 16, splat4(0));
+            dec_exact_uv(ls, k.P2, 3, k.U3, k.n2);
+        }
     } else {
         const uint32_t csr = _mm_getcsr();
         _mm_setcsr(CSR_FAST);
         if (b <= 16) dec_fast_pos(ls, &k, b);
         dec_fast_uv(ls, k.P, 9, 6, k.U2, k.n2, csr);
-        if (k.tan) dec_fast_uv(ls, k.P2, 3, 0, k.U3, k.n2, csr);
+        if (k.tan) {
+            sq(ls, k.U3 + 16 * k.n2, splat4(0)); sq(ls, k.U3 + 16 * k.n2 + 16, splat4(0));
+            dec_fast_uv(ls, k.P2, 3, 0, k.U3, k.n2, csr);
+        }
         _mm_setcsr(csr);
     }
-    sq(ls, k.U2 + 16 * k.n2, splat4(0)); sq(ls, k.U2 + 16 * k.n2 + 16, splat4(0));
-    if (k.tan) { sq(ls, k.U3 + 16 * k.n2, splat4(0)); sq(ls, k.U3 + 16 * k.n2 + 16, splat4(0)); }
     gpr[80] = lq(ls, sp - 0x10); gpr[81] = lq(ls, sp - 0x20); gpr[82] = lq(ls, sp - 0x30);
     gpr[0] = lq(ls, sp + 0x10);
     return 1;
@@ -1686,6 +1723,14 @@ static void edge_stats(void)
         if (!k->calls) continue;
         fprintf(stderr, "[edge] %s (0x%X): %llu calls, %llu native, %llu lifted", k->name, k->addr, k->calls, k->native, k->fallback);
         if (k->exact) fprintf(stderr, ", %llu exact groups", __atomic_load_n(k->exact, __ATOMIC_RELAXED));
+        if (k->core == edge_dec_core && k->fallback) {
+            fprintf(stderr, " (lifted:");
+            for (int r = 0; r < DEC_FB_N; r++) {
+                const unsigned long long v = __atomic_load_n(&g_dec_fb[r], __ATOMIC_RELAXED);
+                if (v) fprintf(stderr, " %llu %s", v, k_dec_fb_name[r]);
+            }
+            fprintf(stderr, ")");
+        }
         if (k->mode == 2)
             fprintf(stderr, "; compared %llu, differ %llu; native %.2f us, lifted %.2f us per compared call",
                     k->cmp, k->bad, k->cmp ? k->ns_nat / 1e3 / k->cmp : 0.0, k->cmp ? k->ns_spu / 1e3 / k->cmp : 0.0);
