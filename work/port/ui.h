@@ -19,4 +19,12 @@ void port_ui_wait_start(void);
  * calmer pace then). */
 int port_ui_start_screen(void);
 
+/* PS3RECOMP_RT_ASPECT=auto and PS3RECOMP_ASPECT=auto (the Ultrawide option,
+ * or play.sh) become the shape of the monitor the window opens on, as WxH,
+ * or are removed -- 16:9 -- when it is not wider than 16:9 or no window
+ * opens. The SPUs, the backend and the camera wrap each read these once and
+ * have to agree, so this runs in main before any thread that reads the
+ * environment starts. */
+void port_resolve_aspect_auto(void);
+
 #endif

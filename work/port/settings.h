@@ -23,6 +23,8 @@ typedef struct port_settings {
     int downscale;      /* a frame larger than the window: 0 bilinear, 1 area average */
     int sharpen;        /* RCAS in thousandths, 0..1000; -1 automatic */
     int fov;            /* field of view, percent wider than the game's (0..30): PS3RECOMP_FOV_SCALE */
+    int ultrawide;      /* the picture in the monitor's shape, HUD in the middle 16:9:
+                         * PS3RECOMP_RT_ASPECT and PS3RECOMP_ASPECT, both "auto" */
     /* [language] */
     char voice[24];     /* the voice pack: cache/psarc/<voice>.psarc */
     char text[24];      /* the text pack: cache/psarc/<text>_text.psarc */
@@ -66,6 +68,7 @@ enum {
     PORT_PIN_POST_AA = 1 << 12, PORT_PIN_UPSCALE = 1 << 13, PORT_PIN_DOWNSCALE = 1 << 14,
     PORT_PIN_SHARPEN = 1 << 15, PORT_PIN_KBM = 1 << 16, PORT_PIN_KBM_SENS = 1 << 17,
     PORT_PIN_KBM_INVERT_Y = 1 << 18, PORT_PIN_KBM_DEADZONE = 1 << 19,
+    PORT_PIN_ULTRAWIDE = 1 << 20,
 };
 
 /* Before port_settings_export: each field whose variable is set takes the

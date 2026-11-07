@@ -157,6 +157,7 @@ int port_settings_load(port_settings* s, const char* path)
             else if (k == "downscale") set_name(&s->downscale, v, k_down_names, 2);
             else if (k == "sharpen") set_sharpen(&s->sharpen, v);
             else if (k == "fov") set_int(&s->fov, v, 0, 30);
+            else if (k == "ultrawide") set_int(&s->ultrawide, v, 0, 1);
         } else if (section == "language") {
             if (k == "voice" && voice_known(v.c_str())) snprintf(s->voice, sizeof s->voice, "%s", v.c_str());
             else if (k == "text" && lang_known(v.c_str())) snprintf(s->text, sizeof s->text, "%s", v.c_str());
@@ -193,6 +194,7 @@ int port_settings_save(const port_settings* in, const char* path)
     if (s_pinned & PORT_PIN_STRETCH)       out.stretch = s_file.stretch;
     if (s_pinned & PORT_PIN_DISPLAY)       out.display = s_file.display;
     if (s_pinned & PORT_PIN_FOV)           out.fov = s_file.fov;
+    if (s_pinned & PORT_PIN_ULTRAWIDE)     out.ultrawide = s_file.ultrawide;
     if (s_pinned & PORT_PIN_VOICE)         memcpy(out.voice, s_file.voice, sizeof out.voice);
     if (s_pinned & PORT_PIN_TEXT)          memcpy(out.text, s_file.text, sizeof out.text);
     if (s_pinned & PORT_PIN_FPS_LIMIT)     out.fps_limit = s_file.fps_limit;
@@ -236,6 +238,7 @@ int port_settings_save(const port_settings* in, const char* path)
             "downscale = %s      ; picture larger than the window: bilinear, area\n"
             "sharpen = %s        ; auto (0.8 after fsr1), or 0 (off) to 1\n"
             "fov = %d            ; field of view, %% wider than the game's (0..30)\n"
+            "ultrawide = %d      ; 1 = the picture in the monitor's shape, HUD and videos in the middle 16:9\n"
             "\n[language]\n"
             "voice = %s\n"
             "text = %s\n"
@@ -257,7 +260,7 @@ int port_settings_save(const port_settings* in, const char* path)
             "map = %s ; Key=BUTTON over the default layout, e.g. F=SQUARE Q=NONE\n",
             s->scale, s->fullscreen, s->vsync, s->stretch, s->display,
             k_aa_names[s->post_aa], k_up_names[s->upscale], k_down_names[s->downscale],
-            sharpen_text(s->sharpen).c_str(), s->fov,
+            sharpen_text(s->sharpen).c_str(), s->fov, s->ultrawide,
             s->voice, s->text, s->fps_limit, s->fps_counter, s->record_thread,
             s->skip_launcher, s->fullres_particles, s->aniso, s->mods_on,
             s->kbm, s->kbm_sens / 100.0, s->kbm_invert_y, s->kbm_deadzone / 100.0, s->kbm_map);
@@ -288,6 +291,20 @@ static void put(const char* name, const char* value)
 /* The backend's reading of a switch: set, not empty, not "0". */
 static int env_on(const char* v) { return v[0] && v[0] != '0'; }
 
+/* "auto", or a shape wider than 16:9 in any of the forms rsx_res_axis.h
+ * takes (3440x1440, 21:9, 3440/1440, 2.389). */
+static int aspect_wider(const char* v)
+{
+    if (!strcmp(v, "auto")) return 1;
+    char* e;
+    double a = strtod(v, &e);
+    if (e != v && (*e == '/' || *e == 'x' || *e == 'X' || *e == ':')) {
+        const double b = strtod(e + 1, nullptr);
+        a = b > 0.0 ? a / b : 0.0;
+    }
+    return a > 16.0 / 9.0 * 1.01;
+}
+
 unsigned port_settings_from_env(port_settings* s)
 {
     s_file = *s;
@@ -309,6 +326,10 @@ unsigned port_settings_from_env(port_settings* s)
         const long p = lround((strtod(v, nullptr) - 1.0) * 100.0);
         s->fov = p < 0 ? 0 : p > 30 ? 30 : (int)p;
         pin |= PORT_PIN_FOV;
+    }
+    if ((v = getenv("PS3RECOMP_RT_ASPECT"))) {
+        s->ultrawide = aspect_wider(v);
+        pin |= PORT_PIN_ULTRAWIDE;
     }
     if ((v = getenv("PS3_VOICE_LANG")) && voice_known(v)) {
         snprintf(s->voice, sizeof s->voice, "%s", v); pin |= PORT_PIN_VOICE;
@@ -369,6 +390,11 @@ void port_settings_export(const port_settings* s)
     snprintf(b, sizeof b, "%d", s->display);       put("PS3RECOMP_VK_DISPLAY", b);
     /* Unset at 0: the SetFov wrap (ppu_native.cpp) then stays off. */
     if (s->fov) { snprintf(b, sizeof b, "%.2f", 1.0 + s->fov / 100.0); put("PS3RECOMP_FOV_SCALE", b); }
+    /* The wide targets and the game's own aspect go together, or the picture
+     * is stretched (the backend's targets) or squeezed (the camera alone).
+     * "auto" becomes the monitor's shape in main (port_resolve_aspect_auto),
+     * before any thread reads it. Unset when off: 16:9, as before. */
+    if (s->ultrawide) { put("PS3RECOMP_RT_ASPECT", "auto"); put("PS3RECOMP_ASPECT", "auto"); }
     put("PS3_VOICE_LANG", s->voice);
     put("PS3_TEXT_LANG", s->text);
     /* The console language the game picks its pair by: the text's where the

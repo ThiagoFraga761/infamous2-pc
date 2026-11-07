@@ -743,6 +743,9 @@ int main(int argc, char** argv)
              had ? "read" : "defaults, no", port_settings_path(), ps->scale, ps->voice, ps->text,
              ps->vsync ? "on" : "off");
       port_ui_init(argc, argv); }
+    /* RT_ASPECT=auto and ASPECT=auto (the Ultrawide option, or play.sh) as
+     * the monitor's shape, while no thread but the log pump runs. */
+    port_resolve_aspect_auto();
 
     /* inFAMOUS 2: the audio sync the main thread waits on comes from its Wwise
      * jobs' own throw_event, so a job must not also get a synthetic "job done"

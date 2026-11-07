@@ -255,6 +255,55 @@ int main()
         remove(p5.c_str());
     }
 
+    /* ultrawide: round trip, a shape in the environment pinning it, both
+     * variables exported as "auto" only when it is on */
+    {
+        const std::string p7 = std::string(dir) + "/uw.ini";
+        port_settings a; port_settings_defaults(&a);
+        CHECK(a.ultrawide == 0);
+        a.ultrawide = 1;
+        CHECK(port_settings_save(&a, p7.c_str()) == 0);
+        port_settings b;
+        CHECK(port_settings_load(&b, p7.c_str()) == 1 && b.ultrawide == 1);
+        FILE* g = fopen(p7.c_str(), "w");
+        fputs("[video]\nultrawide = 3\n", g);
+        fclose(g);
+        CHECK(port_settings_load(&b, p7.c_str()) == 1 && b.ultrawide == 0);
+        const char* const wide[] = { "auto", "3440x1440", "21:9", "2.389", "5120/1440" };
+        const char* const narrow[] = { "16:9", "1920x1080", "16:10", "1.78", "junk" };
+        for (const char* v : wide) {
+            setenv("PS3RECOMP_RT_ASPECT", v, 1); b.ultrawide = 0;
+            CHECK((port_settings_from_env(&b) & PORT_PIN_ULTRAWIDE) && b.ultrawide == 1);
+        }
+        for (const char* v : narrow) {
+            setenv("PS3RECOMP_RT_ASPECT", v, 1); b.ultrawide = 1;
+            CHECK((port_settings_from_env(&b) & PORT_PIN_ULTRAWIDE) && b.ultrawide == 0);
+        }
+        g = fopen(p7.c_str(), "w");
+        fputs("[video]\nultrawide = 0\n", g);
+        fclose(g);
+        CHECK(port_settings_load(&b, p7.c_str()) == 1);
+        setenv("PS3RECOMP_RT_ASPECT", "3440x1440", 1);
+        CHECK((port_settings_from_env(&b) & PORT_PIN_ULTRAWIDE) && b.ultrawide == 1);
+        CHECK(port_settings_save(&b, p7.c_str()) == 0);       /* pinned: the file keeps 0 */
+        port_settings c;
+        CHECK(port_settings_load(&c, p7.c_str()) == 1 && c.ultrawide == 0);
+        unsetenv("PS3RECOMP_RT_ASPECT"); unsetenv("PS3RECOMP_ASPECT");
+        CHECK(!(port_settings_from_env(&c) & PORT_PIN_ULTRAWIDE));
+        port_settings_export(&c);
+        CHECK(!getenv("PS3RECOMP_RT_ASPECT") && !getenv("PS3RECOMP_ASPECT"));
+        c.ultrawide = 1;
+        port_settings_export(&c);
+        CHECK(getenv("PS3RECOMP_RT_ASPECT") && !strcmp(getenv("PS3RECOMP_RT_ASPECT"), "auto"));
+        CHECK(getenv("PS3RECOMP_ASPECT") && !strcmp(getenv("PS3RECOMP_ASPECT"), "auto"));
+        unsetenv("PS3RECOMP_RT_ASPECT"); unsetenv("PS3RECOMP_ASPECT");
+        setenv("PS3RECOMP_ASPECT", "2.0", 1);                 /* the environment's own wins */
+        port_settings_export(&c);
+        CHECK(!strcmp(getenv("PS3RECOMP_ASPECT"), "2.0") && !strcmp(getenv("PS3RECOMP_RT_ASPECT"), "auto"));
+        unsetenv("PS3RECOMP_RT_ASPECT"); unsetenv("PS3RECOMP_ASPECT");
+        remove(p7.c_str());
+    }
+
     remove(path.c_str());
     printf(fails ? "settings_test: %d FAILED\n" : "settings_test: ok\n", fails);
     return fails != 0;
