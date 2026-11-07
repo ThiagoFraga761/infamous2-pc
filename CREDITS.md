@@ -13,4 +13,11 @@
 - **[RPCS3](https://rpcs3.net)** (GPL-2.0): the behavioural reference for many
   RSX and lv2 details (cited where they are used), and the tool used to decrypt
   the executable.
+- **[FidelityFX FSR 1](https://github.com/GPUOpen-Effects/FidelityFX-FSR)** (AMD,
+  MIT) and **[SMAA](https://github.com/iryoku/smaa)** by Jorge Jimenez et al.
+  (MIT): the shader sources of the present chain's FSR 1 and SMAA passes,
+  kept unmodified with their licences in the toolkit patch
+  (`libs/video/vulkan/fsr1/`, `libs/video/vulkan/smaa/`).
+- **[Dear ImGui](https://github.com/ocornut/imgui)** (MIT): the launcher and the
+  in-game menu. `scripts/setup.sh` fetches it at a fixed tag.
 - Written with AI assistance (Claude).
