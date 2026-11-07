@@ -775,6 +775,14 @@ int main(int argc, char** argv)
      * its descriptor) gets no synthetic completion either: the WWS handlers
      * read one as a message and call through NULL. */
     env_default("SPURS_JC_NO_SYNTH", "1");
+    /* The Edge vertex decompression (0x4448) and compression (0x99E8) kernels
+     * in C (edge_kernels_native.c): in compare mode they matched the lifted
+     * SPU code on ~2.5 million calls in the heavy area and New Marais, at
+     * ~1.15 us a call against ~4.9. On now that the SPUs are one of the four
+     * threads near their limit there. =0 runs the lifted code. The index
+     * decompression kernel (0xC7B8) stays opt-in until it is compared in game. */
+    env_default("PS3RECOMP_NATIVE_EDGE_DEC", "1");
+    env_default("PS3RECOMP_NATIVE_EDGE_ENC", "1");
     /* Texture builds off the recording queue: off until measured. */
     env_default("PS3RECOMP_BQ_TEXBUILD", "0");
     /* Its frames are built on the SPU: the FIFO parks at the end of what is

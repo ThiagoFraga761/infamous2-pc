@@ -28,10 +28,11 @@
  * NATIVE_ENTRIES). PS3RECOMP_NATIVE_EDGE: 1 (default) on; 0 off; 2 runs the
  * native kernel on a copy of the local store, then the lifted function, and
  * compares the local store and r0, r1, r80-r127, logging any difference.
- * The decompression and compression kernels are newer and opt-in, each with
- * its own switch of the same values: PS3RECOMP_NATIVE_EDGE_DEC,
- * PS3RECOMP_NATIVE_EDGE_ENC and PS3RECOMP_NATIVE_EDGE_IDX (off unless set;
- * PS3RECOMP_NATIVE_EDGE=0 still turns everything off).
+ * The decompression, compression and index kernels are newer, each with its
+ * own switch of the same values: PS3RECOMP_NATIVE_EDGE_DEC,
+ * PS3RECOMP_NATIVE_EDGE_ENC and PS3RECOMP_NATIVE_EDGE_IDX (off unless set
+ * here; main.cpp sets the first two to 1; PS3RECOMP_NATIVE_EDGE=0 still turns
+ * everything off).
  *
  * Built like the lifted SPU sources (-march=x86-64-v4): it needs AVX-512. */
 #include <stdint.h>
