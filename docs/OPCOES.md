@@ -126,7 +126,7 @@ PS3RECOMP_RES_SCALE=2 PS3RECOMP_RT_ASPECT=3440x1440 PS3RECOMP_ASPECT=3440x1440 w
 | `PS3RECOMP_EDGE_DEC_LAYOUT` | — | `1` | `0` volta ao guard estrito antigo do 0x4448 |
 | `PS3RECOMP_WTRACK` | — | `1` (main.cpp, Linux) | Rastreamento de escrita na memória local do RSX: textura que ninguém reescreveu não é refeita. `2` confere |
 | `PS3RECOMP_ENG_VPULL` | — | `1` (settings) | A GPU lê os bytes de vértice do guest direto |
-| `PS3RECOMP_BQ_TEXBUILD` | — | `0` (main.cpp) | Texturas criadas ao lado da thread de gravação, sem drenar a fila. O fork liga por padrão; o port fixa em 0 até ser medido |
+| `PS3RECOMP_BQ_TEXBUILD` | — | `1` (main.cpp) | Texturas novas criadas na thread do RSX, ao lado da thread de gravação, sem esperar a fila esvaziar. A GPU recebe os mesmos comandos na mesma ordem. `0` volta a esperar a fila a cada textura nova |
 
 Ajuste fino do pacote `PS3_MAIN_WAITS`. Cada um também pode ser ligado
 sozinho, e um valor explícito ganha do pacote (`PS3_MAIN_WAITS=1 PS3_JL_WAIT=0`):
@@ -238,7 +238,7 @@ olhar. Os commits do port são `626b7c4` (leva 1), `bb80d0c` (leva 2),
 | `PS3RECOMP_BQ_VSC_DELTA` | `1` | `0` copia todas as linhas de constantes do VS; `2` confere |
 | `PS3RECOMP_RES_AXIS` | ligado | `0` |
 | `PS3RECOMP_KBM` | `1` | `0` |
-| `PS3RECOMP_BQ_TEXBUILD` | `0` no port | `1` para testar |
+| `PS3RECOMP_BQ_TEXBUILD` | `1` (até 07/11 o port fixava em `0`) | `0` |
 | `PS3RECOMP_CLIP_PLANES`, `PS3RECOMP_SHADOW_PCF`, `PS3RECOMP_SHADOW_SCALE`, `PS3RECOMP_REFLECT_SCALE` | desligados (opt-in) | — |
 | `PS3RECOMP_NATIVE_EDGE_IDX` | `0` (opt-in) | — |
 | `PS3RECOMP_EDGE_DEC_LAYOUT` | `1` | `0` |
@@ -268,6 +268,23 @@ em `VK_RING_VERTEX_MB`.
 | `PS3RECOMP_BQ_ROWCOPY` | `1` | `0` usa `memcpy` em todas as linhas |
 | `PS3RECOMP_BQ_SPIN` | `4000` | PAUSEs do worker antes do futex (0–1000000) |
 | `PS3RECOMP_BQ_MWAITX` / `_US` | `0` / `50` | `1` faz o worker esperar com MONITORX/MWAITX (AMD) |
+
+### Streaming de textura sem pico (tex-stream)
+
+Cortam o custo de uma área nova, quando centenas de texturas chegam num frame
+só. Na missão pesada de 07/11, um frame de 157 ms criou 727 texturas e mandou
+79 MB em 6.252 uploads.
+
+| Variável | Padrão | Para voltar |
+|---|---|---|
+| `PS3RECOMP_BQ_TEXBUILD` | `1` (main.cpp) | `0` espera a fila de gravação esvaziar a cada textura nova |
+| `PS3RECOMP_ENG_TEXMAP` | `1` | `0` decodifica cada nível no staging do engine e copia para a fila, como antes. Ligado, o nível é decodificado direto no registro da fila (uma passada pelos pixels a menos na thread do RSX) |
+| `PS3RECOMP_ENG_TEXMISS_HASH` | `0` com `PS3RECOMP_WTRACK=1` | `1` volta a calcular o hash de toda textura nova. Desligado, a textura nova só arma o rastreamento de escrita; o hash é feito na primeira vez que o rastreamento acusa uma escrita. Com `WTRACK` em `0` ou `2`, o hash é sempre feito |
+| `PS3RECOMP_VK_TEXSUB_MB` | `512` | `0` dá uma alocação própria (`vkAllocateMemory`) a cada textura. Ligado, as texturas de até 1 MB ficam em blocos de 16 MB, até esse total em MB |
+| `PS3RECOMP_VK_UPLOAD_COALESCE` | `1` | `0` põe uma barreira antes de cada upload. Ligado, os níveis seguidos de uma mesma textura dividem a barreira do primeiro |
+
+Com `PS3RECOMP_VK_STATS=1`, o fim da sessão mostra uma linha
+`texture blocks: ...` com quantos slots e blocos foram usados.
 
 ---
 
@@ -307,4 +324,7 @@ checked against the code on 2026-11-07.
   statistics.
 - **Kill switches** (section 6): one table for each of the three performance
   waves merged on 2026-11-07. If something breaks after an update, look there
-  first.
+  first. Texture streaming (tex-stream): `PS3RECOMP_BQ_TEXBUILD` is now on in
+  the port too, and `PS3RECOMP_ENG_TEXMAP`, `PS3RECOMP_VK_TEXSUB_MB` (512),
+  `PS3RECOMP_VK_UPLOAD_COALESCE` are on, `PS3RECOMP_ENG_TEXMISS_HASH` off;
+  `0` (`1` for the last) restores the old path.

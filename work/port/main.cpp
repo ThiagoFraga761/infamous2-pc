@@ -786,8 +786,14 @@ int main(int argc, char** argv)
      * decompression kernel (0xC7B8) stays opt-in until it is compared in game. */
     env_default("PS3RECOMP_NATIVE_EDGE_DEC", "1");
     env_default("PS3RECOMP_NATIVE_EDGE_ENC", "1");
-    /* Texture builds off the recording queue: off until measured. */
-    env_default("PS3RECOMP_BQ_TEXBUILD", "0");
+    /* New textures are built on the RSX thread beside the recording thread,
+     * which gets only their first barrier: the GPU sees the same commands in
+     * the same order. With it off (the 07/11 mission session), every new
+     * texture waited for the whole queue: the 157 ms frame that streamed in
+     * 727 textures spent 23 ms in 818 such waits, and the 62-105 ms frames
+     * waited 26-43 ms behind pipeline builds on the recording thread
+     * (sync_top=t_texture_create). Set explicitly so the log says which. */
+    env_default("PS3RECOMP_BQ_TEXBUILD", "1");
     /* Its frames are built on the SPU: the FIFO parks at the end of what is
      * ready and the title patches the park with the rest. Wait at a park the
      * way the RSX does instead of following the write head. */
