@@ -113,6 +113,9 @@ PS3RECOMP_RES_SCALE=2 PS3RECOMP_RT_ASPECT=3440x1440 PS3RECOMP_ASPECT=3440x1440 w
 | `PS3RECOMP_BE_THREAD` | `[performance] record_thread` | `1` com janela; `0` sem janela | Thread de gravação Vulkan separada (+12% nas áreas pesadas) |
 | `PS3_MAIN_WAITS` | — | `0` | `1` liga o pacote de esperas nativas da thread principal (abaixo). Com limite de 60: main de 99% para 46% de CPU, p99 de 16,9 para 17,7 ms. Bom para gastar menos CPU com limite |
 | `PS3_HOT_PIN` | — | `1` (main.cpp) | Main, rsx, rsx-record e os 5 SPUs, cada um num núcleo físico próprio (precisa de SMT e 8+ núcleos). `0` desliga |
+| `PS3_HOT_PIN_CORE` | — | `1` | Cada thread quente pode rodar nas duas CPUs lógicas do seu núcleo, não só numa. Presa a uma CPU, ela não tinha para onde ir quando algo de fora do jogo ocupava essa CPU (07/11: a rsx ficou 176 ms de um frame de 189 ms pronta e sem CPU). Duas threads quentes continuam sem dividir núcleo. `0` volta à máscara de uma CPU |
+| `PS3_HOT_PIN_SCAN_MS` | — | `100` | Intervalo em que as threads novas são tiradas das CPUs quentes (era 1 s). As threads de PPU do jogo, os timers, as threads de SPU assíncronas e o gravador do cache de pipeline já saem na partida |
+| `PS3_HOT_NICE` | — | desligado | `-1` a `-15`: esse nice nas threads quentes, por `setpriority` ou, sem `RLIMIT_NICE`, pelo rtkit (`busctl`, sem root). Só pesa contra as outras threads do próprio jogo: contra outro processo, o cgroup do jogo continua com o mesmo peso. Experimental, sem medição |
 | `SPURS_PRIO` | — | `0:1` (main.cpp) | Workload General do SPURS primeiro em todo SPU |
 | `SPU_FAST_CLOCK` | — | ligado | Relógio das threads SPU (decrementador, spin ocioso do SPURS, kernels nativos de job) lido do TSC, calibrado contra `CLOCK_MONOTONIC` nos primeiros 50 ms. Só liga se o clocksource do kernel for `tsc`; o log diz `[spu-clock]`. `0` volta ao `clock_gettime` |
 | `SPU_MICRO_FAST` | — | ligado | Os stubs de salvar/restaurar registradores que o tratador de interrupção do WWS gera em tempo de execução (sequências de `stqd`/`lqd`) são decodificados primeiro por essas duas instruções. A ordem nova cai no mesmo caso para toda palavra. `0` volta à ordem antiga |
@@ -188,12 +191,20 @@ Ligados pelo `work/play.sh`:
 | `PS3RECOMP_FTLOG` | `1` | A cada 10 s, a distribuição dos tempos de frame: mediana, p99, pior frame e 1% low |
 | `PS3RECOMP_VK_HITCH` | 2000 ÷ limite ms, no mínimo 25 | Todo frame mais longo que isso gera uma linha `[vk hitch]` com as causas (builds de pipeline, esperas de GPU, criação de textura, o que cada thread esperou, run-queue, page faults). `-1` desliga |
 | `PS3RECOMP_VK_HITCH_SCHED` | `1` | `0` mantém a linha `[vk hitch]`, mas sem ler `/proc` |
+| `PS3_SCHED_WATCH` | ligado junto com `PS3RECOMP_VK_HITCH` | A cada 20 ms, lê quanto cada thread quente ficou na fila sem CPU. Se uma esperou `PS3_SCHED_WATCH_MS` (10) ou mais do tick e pelo menos metade dele, olha o que rodou naquela CPU nos 100 ms seguintes (`PS3_SCHED_WATCH_WIN_MS`) e grava uma linha `[sched who]`: CPU de cada processo e thread, com cgroup, nice e política; divisão user/system/irq da CPU; e quanto cada thread quente esperou. Cada olhada custa ~25 ms de CPU fora das CPUs quentes, no máximo uma a cada 3 s e 40 por sessão. `0` desliga |
 | `PS3_STALL_MS` / `PS3_STALL_DIR` | `2500` / `<log>-stalls/` | Sem frame por esse tempo, o próprio jogo grava a pilha de todas as threads |
 | `PS3_FREEZE_DUMP` | ligado | Junto com cada stall, grava o estado do runtime (fences, guards e chains de job, workloads do SPURS, filas e flags de evento, sinais perdidos), no momento e de novo 15 s depois. `0` desliga |
 | `PS3_FREEZE_DIR` / `PS3_FREEZE_LOG` | `work/runs/freezes/<log>/` / o log da sessão | Destino do estado e de onde sai o fim do log (512 KB) |
 | `PS3_VERBOSE` | `0` | `1` loga cada job e espera de SPU (milhares de linhas por segundo) |
 | `PLAY_PROFILE` / `PLAY_PROFILE_BELOW` | `1` / 70, ou limite − 5 | Depois de 30 s abaixo do valor em cena 3D, um `perf record` de 20 s (até 3 por sessão). `0` desliga. `PERF=<binário>` quando o perf não está no PATH |
 | `SPU_DUMP_MISS` / `SPU_DUMP_STUCK` | `work/runs/spujob-*` | Imagem de job SPU sem tradução e local store de job preso (`PS3RECOMP_SPU_REPLAY=<arquivo>` repete) |
+
+Na linha `[vk hitch]`, cada entrada de `runq` traz a CPU onde a thread rodou
+por último (`rsx=175.7@1`; num grupo, a da thread que mais esperou). Quando o
+`block_top` da main é um semáforo (`sc92`), vem junto
+`by=<thread>/<tid>+<ms>`: a thread cujo post acordou a main e quanto tempo a
+main levou para voltar depois do post. A linha `[sched who]` usa o mesmo
+relógio do `ending at <ns>` da `[vk hitch]`, para casar as duas.
 
 Na linha `[vk hitch]`, programa novo aparece em quatro campos: `sh_xlate`
 (traduções do glslang no frame, em qualquer thread, inclusive nas `vk-warm`),
@@ -409,12 +420,19 @@ checked against the code on 2026-11-07.
   without glslang; `2` translates and compares), `PS3_HOT_PIN_LEND` (on with
   `PS3_HOT_PIN`; the vk-warm thread the recording thread waits for runs on the
   recording thread's idle CPU for the wait).
+  Hot threads may now run on both logical
+  CPUs of their core (`PS3_HOT_PIN_CORE`, on; `0` is the old one-CPU mask),
+  new threads leave the hot CPUs within `PS3_HOT_PIN_SCAN_MS` (100) or at once,
+  and `PS3_HOT_NICE=-N` (opt-in) asks rtkit for that nice on them.
 - **Controls, language, paths** (section 4): `PS3RECOMP_KBM*`,
   `PS3_SYS_LANG`, `PS3_VOICE_LANG`, `PS3_TEXT_LANG`, `PS3_SAVEDATA_ROOT`,
   `PS3_USER_DIR`, `PS3_MODS_DIR`, `PS3_DEV_FLASH`.
 - **Diagnostics** (section 5): `[rsx fps]` and `[vk hitch]` lines, stall
   stacks and the freeze black box (on in `play.sh`), and optional
-  statistics.
+  statistics. `[vk hitch]` run-queue entries carry the CPU (`rsx=175.7@1`)
+  and a semaphore `block_top` names the posting thread (`by=`).
+  `PS3_SCHED_WATCH` (on with `PS3RECOMP_VK_HITCH`) prints a `[sched who]`
+  line naming what ran on a hot thread's CPU while it waited.
 - **Kill switches** (section 6): one table for each of the three performance
   waves merged on 2026-11-07. If something breaks after an update, look there
   first. Texture streaming (tex-stream): `PS3RECOMP_BQ_TEXBUILD` is now on in
