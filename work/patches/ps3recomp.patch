@@ -8346,10 +8346,10 @@ index f039abfc..828ecf46 100644
  
 diff --git a/libs/video/rsx_be_thread.c b/libs/video/rsx_be_thread.c
 new file mode 100644
-index 00000000..9584efc1
+index 00000000..6812a869
 --- /dev/null
 +++ b/libs/video/rsx_be_thread.c
-@@ -0,0 +1,1942 @@
+@@ -0,0 +1,1943 @@
 +/*
 + * ps3recomp - the draw engine's backend calls, recorded on a thread of their own
 + *
@@ -10290,6 +10290,7 @@ index 00000000..9584efc1
 +int rsx_be_thread_presents_queued(void) { return 0; }
 +void rsx_be_thread_publish(void) {}
 +void rsx_be_thread_vsc_track(const void* rows, u64* written, u32 nrows) { (void)rows; (void)written; (void)nrows; }
++void rsx_be_thread_tex_hint(unsigned changed) { (void)changed; }
 +
 +#endif
 diff --git a/libs/video/rsx_be_thread.h b/libs/video/rsx_be_thread.h
@@ -75918,7 +75919,7 @@ index 2e760ea5..a8906eb1 100644
  
  #ifdef _WIN32
 diff --git a/runtime/syscalls/sys_ppu_thread.c b/runtime/syscalls/sys_ppu_thread.c
-index fb3906ae..a44cbba8 100644
+index fb3906ae..33741e2f 100644
 --- a/runtime/syscalls/sys_ppu_thread.c
 +++ b/runtime/syscalls/sys_ppu_thread.c
 @@ -16,6 +16,11 @@
@@ -76047,7 +76048,7 @@ index fb3906ae..a44cbba8 100644
          strncpy(t->name, "main", sizeof(t->name) - 1);
  #ifdef _WIN32
          t->finish_event = CreateEventA(NULL, TRUE, FALSE, NULL);
-@@ -275,19 +329,30 @@ unsigned long long ppu_thread_cpu_us(unsigned tid)
+@@ -275,19 +329,35 @@ unsigned long long ppu_thread_cpu_us(unsigned tid)
      (void)tid; return 0;
  #endif
  }
@@ -76055,7 +76056,12 @@ index fb3906ae..a44cbba8 100644
 +/* The guest function a host return address is in (ppu_loader.cpp). That file
 + * belongs to a game build, not to the toolkit's own library, which links
 + * without it (ps3recomp_host, the toolkit's CI): the reference is weak. */
-+#if defined(__GNUC__) && !defined(_WIN32)
++#if defined(__APPLE__)
++/* Mach-O resolves an undefined weak reference at link time only with a flag,
++ * so the toolkit carries a weak default the game's strong definition wins over. */
++__attribute__((weak)) uint32_t ppu_prof_resolve_host(void* ra) { (void)ra; return 0; }
++static unsigned prof_resolve(uintptr_t ra) { return ra ? ppu_prof_resolve_host((void*)ra) : 0; }
++#elif defined(__GNUC__) && !defined(_WIN32)
 +extern uint32_t ppu_prof_resolve_host(void* ra) __attribute__((weak));
 +static unsigned prof_resolve(uintptr_t ra) { return ra && ppu_prof_resolve_host ? ppu_prof_resolve_host((void*)ra) : 0; }
 +#else
@@ -76081,7 +76087,7 @@ index fb3906ae..a44cbba8 100644
  
  int ppu_prof_snapshot(int idx, unsigned* tid, unsigned* cia, const char** name)
  {
-@@ -296,31 +361,39 @@ int ppu_prof_snapshot(int idx, unsigned* tid, unsigned* cia, const char** name)
+@@ -296,31 +366,39 @@ int ppu_prof_snapshot(int idx, unsigned* tid, unsigned* cia, const char** name)
      if (idx == 0 && t->state == PPU_THREAD_STATE_FREE) {
          /* slot 0 stays FREE (the main thread never registers) -- serve its
           * dispatcher breadcrumb here so the profiler sees tid 1. */
@@ -76132,7 +76138,7 @@ index fb3906ae..a44cbba8 100644
  int64_t sys_ppu_thread_create(ppu_context* ctx)
  {
      uint32_t tid_out_addr = LV2_ARG_PTR(ctx, 0);
-@@ -362,6 +435,8 @@ int64_t sys_ppu_thread_create(ppu_context* ctx)
+@@ -362,6 +440,8 @@ int64_t sys_ppu_thread_create(ppu_context* ctx)
  
      uint64_t thread_id = (uint64_t)(slot + 1);
      t->ctx.thread_id = thread_id;
@@ -76141,7 +76147,7 @@ index fb3906ae..a44cbba8 100644
  
      t->state      = PPU_THREAD_STATE_RUNNING;
      t->priority   = priority;
-@@ -407,6 +482,17 @@ int64_t sys_ppu_thread_create(ppu_context* ctx)
+@@ -407,6 +487,17 @@ int64_t sys_ppu_thread_create(ppu_context* ctx)
      fprintf(stderr, "[SYS] sys_ppu_thread_create tid=%llu name=\"%s\" entry=0x%08llX arg=0x%llX stack=0x%X prio=%d\n",
              (unsigned long long)thread_id, t->name, (unsigned long long)entry, (unsigned long long)arg,
              stack_size, priority);
@@ -76159,7 +76165,7 @@ index fb3906ae..a44cbba8 100644
      /* YDKJ: dump the worker arg-object: func_000750A8 (thread body) does
       * this=[arg+0x8], vtable=[arg+0xC], method=[vtable+0]. If this(+0x8) is null
       * the worker dispatches its job on a null object -> construction never runs. */
-@@ -418,19 +504,6 @@ int64_t sys_ppu_thread_create(ppu_context* ctx)
+@@ -418,19 +509,6 @@ int64_t sys_ppu_thread_create(ppu_context* ctx)
          #undef RB
        } }
  
@@ -76179,7 +76185,7 @@ index fb3906ae..a44cbba8 100644
      /* Create the host thread. Give it a large RESERVED stack: each recompiled
       * guest call is a real host call, so deep guest call chains nest deeply on
       * the host stack and overflow the 1 MB default. Reserve 256 MB (committed
-@@ -440,7 +513,7 @@ int64_t sys_ppu_thread_create(ppu_context* ctx)
+@@ -440,7 +518,7 @@ int64_t sys_ppu_thread_create(ppu_context* ctx)
      /* Gate only guest worker threads (game .text entry), never libsre/system threads. */
      unsigned _initflag = STACK_SIZE_PARAM_IS_A_RESERVATION;
      int _gate_this = (g_gate_on > 0 && entry >= 0x10000 && entry < 0x10000000);
@@ -76188,7 +76194,7 @@ index fb3906ae..a44cbba8 100644
      t->host_thread = (HANDLE)_beginthreadex(NULL, 256u * 1024 * 1024,
                                    (unsigned (__stdcall*)(void*))ppu_host_thread_proc, t,
                                    _initflag, (unsigned*)&t->host_tid);
-@@ -450,7 +523,7 @@ int64_t sys_ppu_thread_create(ppu_context* ctx)
+@@ -450,7 +528,7 @@ int64_t sys_ppu_thread_create(ppu_context* ctx)
          table_unlock();
          return (int64_t)(int32_t)CELL_EAGAIN;
      }
@@ -76197,7 +76203,7 @@ index fb3906ae..a44cbba8 100644
      /* The guest's top priorities (0 is highest, 3071 lowest) are its audio and
       * I/O pollers. At normal host priority they wake late under a busy frame:
       * The Simpsons Arcade Game's music thread (prio 0) polls the audio read
-@@ -502,6 +575,62 @@ int64_t sys_ppu_thread_create(ppu_context* ctx)
+@@ -502,6 +580,62 @@ int64_t sys_ppu_thread_create(ppu_context* ctx)
      return CELL_OK;
  }
  
@@ -76260,7 +76266,7 @@ index fb3906ae..a44cbba8 100644
  /* ---------------------------------------------------------------------------
   * sys_ppu_thread_exit
   *
-@@ -532,13 +661,14 @@ int64_t sys_ppu_thread_exit(ppu_context* ctx)
+@@ -532,13 +666,14 @@ int64_t sys_ppu_thread_exit(ppu_context* ctx)
          pthread_cond_signal(&t->finish_cond);
          pthread_mutex_unlock(&t->finish_mutex);
  #endif
@@ -76276,7 +76282,7 @@ index fb3906ae..a44cbba8 100644
          if (allow < 0) allow = getenv("PS3_NO_THREAD_EXIT_UNWIND") ? 0 : 1;
          if (allow && s_exit_armed) { s_exit_armed = 0; longjmp(s_exit_jmp, 1); }
      }
-@@ -555,7 +685,7 @@ int64_t sys_ppu_thread_join(ppu_context* ctx)
+@@ -555,7 +690,7 @@ int64_t sys_ppu_thread_join(ppu_context* ctx)
  {
      uint64_t tid          = LV2_ARG_U64(ctx, 0);
      uint32_t status_addr  = LV2_ARG_PTR(ctx, 1);
@@ -76285,7 +76291,7 @@ index fb3906ae..a44cbba8 100644
  
      table_lock();
      ppu_thread_info* t = find_thread(tid);
-@@ -704,7 +834,7 @@ int64_t sys_ppu_thread_yield(ppu_context* ctx)
+@@ -704,7 +839,7 @@ int64_t sys_ppu_thread_yield(ppu_context* ctx)
       * derivation is wrong or the struct is never initialised. Read r30 out of
       * the live context instead of deriving it: no TOC arithmetic, no
       * assumption about which callback is running. */
@@ -76294,7 +76300,7 @@ index fb3906ae..a44cbba8 100644
        if (sw < 0) sw = getenv("PS1_SPINWAIT") ? 1 : 0;
        if (sw) {
            static unsigned long n;
-@@ -734,7 +864,7 @@ int64_t sys_ppu_thread_yield(ppu_context* ctx)
+@@ -734,7 +869,7 @@ int64_t sys_ppu_thread_yield(ppu_context* ctx)
       * emulator retires over a billion R3000 instructions while emitting no GP0
       * drawing commands, and nothing else distinguishes "running the game" from
       * "spinning in a wait loop". */
@@ -76303,7 +76309,7 @@ index fb3906ae..a44cbba8 100644
        if (pc_on < 0) pc_on = getenv("PS1_R3000_PC") ? 1 : 0;
        if (pc_on) {
            const uint32_t lr = (uint32_t)ctx->lr;
-@@ -875,7 +1005,7 @@ int64_t sys_ppu_thread_yield(ppu_context* ctx)
+@@ -875,7 +1010,7 @@ int64_t sys_ppu_thread_yield(ppu_context* ctx)
                   * forever; if it changes, the input is moving and the fault is
                   * in the extraction or the table lookup. Sampling at yields is
                   * enough because this window already takes 15,213 of them. */
@@ -76312,7 +76318,7 @@ index fb3906ae..a44cbba8 100644
                    if (lw == -2) { const char* e = getenv("PS1_LOOPWATCH");
                                    lw = e ? 1 : 0;
                                    lwb = e ? (uint32_t)strtoul(e, 0, 16) : 0u; }
-@@ -914,7 +1044,7 @@ int64_t sys_ppu_thread_yield(ppu_context* ctx)
+@@ -914,7 +1049,7 @@ int64_t sys_ppu_thread_yield(ppu_context* ctx)
                 * This measures it instead: a flag per 64-byte bucket across the
                 * BIOS, reported once, so "CdInit was entered" becomes an
                 * observation rather than a deduction. */
@@ -76321,7 +76327,7 @@ index fb3906ae..a44cbba8 100644
                  if (cen < 0) cen = getenv("PS1_PC_CENSUS") ? 1 : 0;
                  if (cen) {
                      /* 0xBFC00000..0xBFC80000 in 64-byte buckets = 8192 flags */
-@@ -1277,6 +1407,79 @@ int64_t sys_ppu_thread_get_stack_information(ppu_context* ctx)
+@@ -1277,6 +1412,79 @@ int64_t sys_ppu_thread_get_stack_information(ppu_context* ctx)
  /* ---------------------------------------------------------------------------
   * Registration
   * -----------------------------------------------------------------------*/
@@ -76401,7 +76407,7 @@ index fb3906ae..a44cbba8 100644
  void sys_ppu_thread_init(lv2_syscall_table* tbl)
  {
      /* Initialize stack allocator */
-@@ -1284,6 +1487,13 @@ void sys_ppu_thread_init(lv2_syscall_table* tbl)
+@@ -1284,6 +1492,13 @@ void sys_ppu_thread_init(lv2_syscall_table* tbl)
  
      /* Clear thread table */
      memset(g_ppu_threads, 0, sizeof(g_ppu_threads));
@@ -76415,7 +76421,7 @@ index fb3906ae..a44cbba8 100644
  
  #ifdef _WIN32
      if (!s_table_lock_init) {
-@@ -1292,7 +1502,8 @@ void sys_ppu_thread_init(lv2_syscall_table* tbl)
+@@ -1292,7 +1507,8 @@ void sys_ppu_thread_init(lv2_syscall_table* tbl)
      }
  #endif
  

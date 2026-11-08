@@ -109,33 +109,37 @@ jobs:
   # TSC clock, CPU pinning, Vulkan) and nobody has run the port on either
   # system. A red job here is a list of what still has to be ported.
   toolkit-windows:
-    name: Windows (toolkit runtime library, experimental)
+    name: Windows (toolkit runtime library via MinGW-w64, experimental)
     runs-on: windows-latest
     continue-on-error: true
+    defaults:
+      run:
+        shell: msys2 {0}
     steps:
       - uses: actions/checkout@v4
-      - uses: ilammy/msvc-dev-cmd@v1
+      - uses: msys2/setup-msys2@v2
         with:
-          arch: x64
-      - name: Install Ninja
-        run: choco install ninja -y --no-progress
+          msystem: UCRT64
+          update: true
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-SDL2
       - name: Toolkit with the patch applied
-        shell: bash
         run: |
           git clone --filter=blob:none "$UPSTREAM" ps3recomp
           git -C ps3recomp checkout --quiet "$BASE"
           git -C ps3recomp apply "$GITHUB_WORKSPACE/work/patches/ps3recomp.patch"
       - name: Configure
         working-directory: ps3recomp
-        run: >
-          cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=clang-cl
-          -DCMAKE_CXX_COMPILER=clang-cl -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
       - name: Build
         working-directory: ps3recomp
         run: cmake --build build
       - name: The library exists
-        shell: bash
-        run: test -s ps3recomp/build/ps3recomp_runtime.lib
+        run: test -s ps3recomp/build/libps3recomp_runtime.a
 
   toolkit-macos:
     name: macOS arm64 (toolkit runtime library, experimental)
