@@ -4,6 +4,10 @@
 # here may be shared: it is the game's code, translated.
 #
 #   scripts/lift.sh [path/to/EBOOT.elf]   (default: disc/PS3_GAME/USRDIR/EBOOT.elf)
+#
+# PS3RECOMP_LIFT_FLAGS adds lifter flags. "--legacy-vmx --no-icall-cache" gives
+# the lift as it was before the VMX helpers and bctrl's inline cache, byte for
+# byte (docs/OPCOES.md, section 6).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIR="${PS3RECOMP_DIR:-$ROOT/ps3recomp}"
@@ -26,7 +30,7 @@ mkdir -p "$ROOT/work/out" "$ROOT/work/src"
 "$PY" "$DIR/tools/ppu_lifter.py" "$ELF" \
     --functions "$ROOT/work/out/$name.functions.json" \
     --hle-stubs "$ROOT/work/out/$name.imports.json" \
-    --code-end 0x8c96e8 --local-regs --output "$ROOT/work/src/recomp"
+    --code-end 0x8c96e8 --local-regs ${PS3RECOMP_LIFT_FLAGS:-} --output "$ROOT/work/src/recomp"
 # Native stand-ins for some lifted functions and loops (work/port/ppu_native.cpp).
 "$PY" "$ROOT/work/tools/ppu_native_entries.py" --recomp "$ROOT/work/src/recomp"
 "$PY" "$ROOT/work/tools/lift_spu.py" --toolkit "$DIR" --eboot "$ELF" --spu-dir "$ROOT/work/port/spu"
