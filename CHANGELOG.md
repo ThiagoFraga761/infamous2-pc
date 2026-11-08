@@ -8,6 +8,50 @@ O projeto segue [versionamento semântico](https://semver.org/lang/pt-BR/). Até
 a 1.0, uma versão menor (0.x) pode mudar opções e o formato do
 `settings.ini`.
 
+## [0.2.0] — 2026-11-08
+
+Menos engasgos e CI nos três sistemas. Continua sem arquivos do jogo nem
+binários. O patch do ps3recomp segue sobre o upstream `42f5f8f`.
+
+### Desempenho e engasgos
+
+- Shaders e pipelines novos são traduzidos e compilados fora do frame, e há
+  uma opção no F1 para o efeito de fundo compilar em segundo plano.
+- Texturas novas são montadas ao lado da thread de gravação, com streaming
+  espalhado entre frames.
+- O runtime SPU ficou mais barato, e os jobs nativos de Edge (decodificação e
+  codificação) agora vêm ligados por padrão.
+- Os jobs SPU nativos são medidos no relógio TSC das threads SPU, com
+  tratamento de suspensão do sistema.
+- Lift com VMX e chamadas indiretas inline (`PS3RECOMP_LIFT_FLAGS`).
+- Menos picos do escalonador: o `play.sh` roda o jogo num cgroup próprio com
+  `CPUWeight=1000` (`PLAY_CPU_WEIGHT=0` desliga) e usa o limite de fps do
+  `settings.ini`. O cache de shaders do Mesa fica em `~/.cache/ps3recomp/mesa`.
+- Na missão pesada, a média ficou em ~107–114 fps sem limite. Estável em 120
+  ainda não.
+
+### Ultrawide
+
+- Marcadores de mundo dos scripts dentro da faixa 16:9 do HUD
+  (`PS3RECOMP_UW_MARKERS=1`, opt-in). Ainda não verificado num monitor
+  ultrawide de verdade.
+
+### Correções
+
+- O Vulkan vazava o fence e os rings de upload e de leitura no desligamento
+  (VUID-vkDestroyDevice-device-05137); agora são liberados.
+- O toolkit com o patch não linkava sozinho por causa do resolvedor de
+  endereços do profiler; a referência virou fraca.
+
+### CI
+
+- GitHub Actions com cinco jobs: higiene do repo, toolkit no Linux (testes do
+  walker, do runtime SPU, das opções e cenas Vulkan sob a validation layer),
+  toolkit no Windows (MinGW-w64) e no macOS (arm64), e o build completo do
+  jogo num runner seu (`SELF_HOSTED_BUILD=true`, label `ps3-lift`).
+- O toolkit com o patch compila e linka no Windows e no macOS. O jogo em si
+  só roda no Linux; ninguém o testou nos outros dois.
+
 ## [0.1.0] — 2026-11-07
 
 Primeiro release. Não inclui arquivos do jogo nem binários: é o código-fonte

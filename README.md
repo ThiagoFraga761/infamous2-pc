@@ -55,7 +55,7 @@ Vulkan.
 <sub>Capturas direto da GPU no Linux, com uma Radeon RX 9070 XT, em 1280×720.
 As de Empire City foram renderizadas em 2× (2560×1440) e reduzidas.</sub>
 
-## Novidades da v0.1.0
+## Novidades da v0.1.0 (a v0.2.0 está no [CHANGELOG](CHANGELOG.md))
 
 O histórico completo está no [CHANGELOG.md](CHANGELOG.md).
 
@@ -121,7 +121,7 @@ Tudo o que é novo e vem ligado tem um kill switch por variável de ambiente
 | Travamentos | 🔧 Deadlock raro, sem causa achada; a caixa-preta grava o estado quando acontece |
 | Imagem | 🔧 Correta na maior parte; falhas pontuais ainda aparecem |
 | Linux | ✅ Testado no Fedora 44 |
-| Windows | ❌ Não suportado: o build cruzado com MinGW linka, mas nunca foi testado |
+| Windows e macOS | ❌ Jogo não suportado: o toolkit compila e linka (CI), mas o jogo nunca foi rodado lá |
 
 ### Desempenho
 

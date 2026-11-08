@@ -2,7 +2,7 @@
 
 A meta é **120 fps estáveis**, medidos pelo tempo de frame e não pela média,
 em qualquer área do jogo, e depois **4K a 120 com upscaling**. Estado em
-07/11/2026 (v0.1.0).
+08/11/2026 (v0.2.0).
 
 ## Feito
 
