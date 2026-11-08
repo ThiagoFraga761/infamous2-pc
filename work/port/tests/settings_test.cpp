@@ -24,7 +24,7 @@ int main()
 
     s.scale = 3; s.fullscreen = 1; s.vsync = 1; s.stretch = 1; s.display = 2; s.fov = 15;
     snprintf(s.voice, sizeof s.voice, "english"); snprintf(s.text, sizeof s.text, "brazilian");
-    s.fps_limit = 60; s.fps_counter = 1; s.record_thread = 0; s.skip_launcher = 1;
+    s.fps_limit = 60; s.fps_counter = 1; s.record_thread = 0; s.skip_launcher = 1; s.async_effects = 1;
     CHECK(port_settings_save(&s, path.c_str()) == 0);            /* creates sub/ */
     CHECK(port_settings_load(&r, path.c_str()) == 1);
     CHECK(!memcmp(&s, &r, sizeof s));
@@ -40,8 +40,10 @@ int main()
 
     /* export: the environment wins; the console language follows the text */
     unsetenv("PS3RECOMP_RES_SCALE"); unsetenv("PS3_SYS_LANG"); setenv("PS3_VOICE_LANG", "japanese", 1);
-    r.scale = 2;
+    unsetenv("PS3RECOMP_VK_PIPE_SKIP");
+    r.scale = 2; r.async_effects = 1;
     port_settings_export(&r);
+    CHECK(getenv("PS3RECOMP_VK_PIPE_SKIP") && !strcmp(getenv("PS3RECOMP_VK_PIPE_SKIP"), "1"));
     CHECK(!strcmp(getenv("PS3RECOMP_RES_SCALE"), "2"));
     CHECK(!strcmp(getenv("PS3_VOICE_LANG"), "japanese"));
     CHECK(!strcmp(getenv("PS3_TEXT_LANG"), "french"));
@@ -61,6 +63,7 @@ int main()
         unsetenv("PS3RECOMP_DOWNSCALE"); unsetenv("PS3RECOMP_SHARPEN");
         unsetenv("PS3RECOMP_KBM"); unsetenv("PS3RECOMP_KBM_SENS");
         unsetenv("PS3RECOMP_KBM_INVERT_Y"); unsetenv("PS3RECOMP_KBM_DEADZONE");
+        unsetenv("PS3RECOMP_VK_PIPE_SKIP");
         port_settings b;
         CHECK(port_settings_load(&b, p2.c_str()) == 1);
         const unsigned pin = port_settings_from_env(&b);
@@ -76,6 +79,31 @@ int main()
         port_settings_from_env(&c);                           /* nothing pinned again */
         CHECK(port_settings_pinned() == 0);
         remove(p2.c_str());
+    }
+
+    /* background effects: off by default, the variable pins it, exported as 0/1 */
+    {
+        const std::string p5 = std::string(dir) + "/fx.ini";
+        port_settings a; port_settings_defaults(&a);
+        CHECK(a.async_effects == 0);
+        a.async_effects = 1;
+        CHECK(port_settings_save(&a, p5.c_str()) == 0);
+        port_settings b;
+        CHECK(port_settings_load(&b, p5.c_str()) == 1 && b.async_effects == 1);
+        setenv("PS3RECOMP_VK_PIPE_SKIP", "0", 1);
+        CHECK((port_settings_from_env(&b) & PORT_PIN_ASYNC_EFFECTS) && b.async_effects == 0);
+        b.fps_counter = 1;
+        CHECK(port_settings_save(&b, p5.c_str()) == 0);      /* pinned: the file keeps its 1 */
+        port_settings c;
+        CHECK(port_settings_load(&c, p5.c_str()) == 1 && c.async_effects == 1);
+        unsetenv("PS3RECOMP_VK_PIPE_SKIP");
+        port_settings_from_env(&c);
+        CHECK(!(port_settings_pinned() & PORT_PIN_ASYNC_EFFECTS));
+        FILE* g = fopen(p5.c_str(), "w");
+        fputs("[performance]\nasync_effects = 3\n", g);
+        fclose(g);
+        CHECK(port_settings_load(&b, p5.c_str()) == 1 && b.async_effects == 0);   /* out of range: default */
+        remove(p5.c_str());
     }
 
     /* mods: saved, read back, clamped */

@@ -53,6 +53,7 @@ extern "C" void rsx_vulkan_backend_set_fullscreen(int on);
 extern "C" void rsx_vulkan_backend_set_vsync(int on);
 extern "C" void rsx_vulkan_backend_set_stretch(int on);
 extern "C" void rsx_vulkan_backend_set_fps_limit(int fps);
+extern "C" void rsx_vulkan_backend_set_pipe_skip(int on);
 extern "C" void rsx_vulkan_backend_set_post_aa(int mode);
 extern "C" void rsx_vulkan_backend_set_upscale(int mode);
 extern "C" void rsx_vulkan_backend_set_downscale(int mode);
@@ -411,6 +412,15 @@ void page_performance(port_settings& s)
     if (ImGui::Checkbox("Thread de gravação Vulkan (+12% nas áreas pesadas)", &b)) { s.record_thread = b; save(); }
     pin_end(PORT_PIN_RECORD_THREAD);
     hint("A thread de gravação vale a partir da próxima vez que o jogo abrir.");
+    b = s.async_effects;
+    pin_begin(PORT_PIN_ASYNC_EFFECTS);
+    if (ImGui::Checkbox("Compilar efeitos novos em segundo plano (pode sumir por 1-2 frames)", &b)) {
+        s.async_effects = b; rsx_vulkan_backend_set_pipe_skip(b); save();
+    }
+    pin_end(PORT_PIN_ASYNC_EFFECTS);
+    hint("Um efeito que aparece pela primeira vez (explosão, poder novo) precisa ser compilado. "
+         "Desligado, o jogo espera e o quadro engasga; ligado, o efeito some até ficar pronto "
+         "(alguns frames; mais na primeira vez numa área nova). Vale na hora.");
 }
 
 void page_mods(port_settings& s)

@@ -32,6 +32,8 @@ typedef struct port_settings {
     int fps_limit;      /* 0 none, else frames a second */
     int fps_counter;    /* the counter drawn by the UI */
     int record_thread;  /* PS3RECOMP_BE_THREAD */
+    int async_effects;  /* PS3RECOMP_VK_PIPE_SKIP: a draw whose new program is still being
+                         * made is left out instead of waited for; changed live */
     /* [launcher] */
     int skip_launcher;  /* open the game without the start screen */
     /* [mods]: changes to how the game looks, beyond what the PS3 drew */
@@ -68,7 +70,7 @@ enum {
     PORT_PIN_POST_AA = 1 << 12, PORT_PIN_UPSCALE = 1 << 13, PORT_PIN_DOWNSCALE = 1 << 14,
     PORT_PIN_SHARPEN = 1 << 15, PORT_PIN_KBM = 1 << 16, PORT_PIN_KBM_SENS = 1 << 17,
     PORT_PIN_KBM_INVERT_Y = 1 << 18, PORT_PIN_KBM_DEADZONE = 1 << 19,
-    PORT_PIN_ULTRAWIDE = 1 << 20,
+    PORT_PIN_ULTRAWIDE = 1 << 20, PORT_PIN_ASYNC_EFFECTS = 1 << 21,
 };
 
 /* Before port_settings_export: each field whose variable is set takes the
