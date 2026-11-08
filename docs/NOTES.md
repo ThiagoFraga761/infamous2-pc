@@ -1411,9 +1411,18 @@ Known gaps:
 
 - Markers placed from world positions (objective icons, the aim lock) are
   computed in the wide picture and drawn squeezed, so they sit closer to the
-  centre than their object. The fix is a wrap of
-  `CView::POS_SCREEN_FROM_WORLD` (0x4E2FC0) with the 16:9 tan_x, which needs
-  a rebuild of its chunk.
+  centre than their object. `PS3RECOMP_UW_MARKERS=1` (opt-in, not yet seen in
+  game) wraps the scripts' `CView::POS_SCREEN_FROM_WORLD` (0x4E2FC0) and
+  `POS_WORLD_FROM_SCREEN` (0x4E2E84) in port/ppu_native.cpp: the screen x is
+  divided by r on the way out (multiplied on the way in), which is the
+  projection with the 16:9 tan_x. A marker over the side bands then gets
+  |x| > 1 and is treated as off screen, as on a 16:9 screen. The C++ callers
+  of the projection (func_004415E0) are all gameplay -- the lightning skill's
+  target pick, the missile, grapple and pole skills, CScreenAimSkill, the
+  buddies' attack tactics -- and keep the wide picture.
+  `PS3RECOMP_UW_MARKERS_LOG=1` counts the calls, so a run shows whether the
+  markers go through the script method at all; if they do not, the next
+  suspect is UI drawn from the projection matrix itself (+0xF0).
 - UI drawn into an offscreen target of the 16:9 family and composited
   afterwards stays stretched unless that target is named in
   `PS3RECOMP_UW_HUD_TARGETS`.

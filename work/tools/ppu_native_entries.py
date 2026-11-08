@@ -53,6 +53,8 @@ WORK = os.path.dirname(HERE)
 NATIVE_ENTRIES = [
     0x005DEF90,     # memcpy(dst, src, n)
     0x0043E370,     # CView::SetFov(view, fov): wrapped for the adjustable FOV
+    0x004E2FC0,     # CView::POS_SCREEN_FROM_WORLD (script): wrapped for the ultrawide HUD
+    0x004E2E84,     # CView::POS_WORLD_FROM_SCREEN (script): the same, the other way
 ]
 
 # Hooks for port/ppu_native.cpp's call-count probes (PS3RECOMP_PPU_PROBE=1):
