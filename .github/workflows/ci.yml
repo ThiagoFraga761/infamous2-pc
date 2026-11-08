@@ -1,0 +1,178 @@
+# What CI can and cannot build.
+#
+# The port is the game's own code translated (work/src/recomp, work/port/spu),
+# made from a disc this repository never has, and none of it may ever be
+# uploaded. So a public runner cannot build MyGameRecomp. What it can do is
+# build the toolkit the port stands on (ps3recomp plus work/patches/
+# ps3recomp.patch) on Linux, Windows and macOS, and run every test that needs
+# no game: the FIFO walker and dispatcher, the SPU runtime, the settings, the
+# lifter. A full game build runs only on a self-hosted runner that has the
+# lift (the `game` job, off until the repository variable SELF_HOSTED_BUILD
+# is "true").
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UPSTREAM: https://github.com/sp00nznet/ps3recomp.git
+  BASE: 42f5f8f9415117f324ca438c46573f2caca63468
+  IMGUI_TAG: v1.91.5
+
+jobs:
+  # Nothing from the game, no secret, no build output in the tree.
+  hygiene:
+    name: Repository hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tracked files pass check_clean
+        run: scripts/check_clean.sh --tracked
+      - name: Shell scripts parse
+        run: for f in scripts/*.sh work/*.sh work/tests/*.sh work/port/tools/*.sh; do bash -n "$f" || exit 1; done
+      - name: Python tools compile
+        run: python3 -m py_compile work/tools/*.py
+      - name: The patch is not empty and has no binary hunks
+        run: |
+          test -s work/patches/ps3recomp.patch
+          ! grep -q '^GIT binary patch' work/patches/ps3recomp.patch
+
+  # The toolkit at its pinned commit with our patch, built with the Vulkan
+  # backend on lavapipe (a CPU driver), then every host test.
+  toolkit-linux:
+    name: Linux (toolkit, host tests, Vulkan on lavapipe)
+    runs-on: ubuntu-latest
+    env:
+      VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.json
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libsdl2-dev glslang-dev glslang-tools \
+            spirv-tools libvulkan-dev mesa-vulkan-drivers vulkan-validationlayers
+      - name: Toolkit with the patch applied
+        run: |
+          git clone --filter=blob:none "$UPSTREAM" ps3recomp
+          git -C ps3recomp checkout --quiet "$BASE"
+          git -C ps3recomp apply "$GITHUB_WORKSPACE/work/patches/ps3recomp.patch"
+          git clone --quiet --depth 1 --branch "$IMGUI_TAG" https://github.com/ocornut/imgui.git \
+            ps3recomp/libs/thirdparty/imgui
+      - name: Configure (Vulkan backend, Dear ImGui)
+        working-directory: ps3recomp
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPS3RECOMP_RSX_VULKAN=ON \
+            | tee configure.log
+          grep -q "Vulkan: *guest programs available" configure.log
+      - name: Build
+        working-directory: ps3recomp
+        run: cmake --build build --target ps3recomp_host
+      - name: FIFO walker and dispatcher (fast loop == per-header == per-word)
+        working-directory: ps3recomp
+        run: |
+          out=$(mktemp -d)
+          bash libs/video/tests/run_fifo_walker.sh "$out" | tee walker.log
+          ! grep -q FAIL walker.log
+      - name: SPU runtime (clock, suspend, microstep)
+        working-directory: ps3recomp
+        run: |
+          bash runtime/spu/tests/run_spu_runtime_tests.sh | tee spu.log
+          ! grep -q FAIL spu.log
+      - name: Port settings
+        run: |
+          g++ -std=c++17 -O1 -Iwork/port work/port/tests/settings_test.cpp work/port/settings.cpp -o settings_test
+          ./settings_test
+      - name: Vulkan draw scenes under the validation layer
+        working-directory: ps3recomp
+        env:
+          PS3RECOMP_VK_GUEST_PROGRAMS: "1"
+          VK_INSTANCE_LAYERS: VK_LAYER_KHRONOS_validation
+        run: |
+          fail=0
+          for m in "" "--draw" "--depth" "--quads" "--shader"; do
+            rc=0; ./build/ps3recomp_host $m > run.log 2>&1 || rc=$?
+            echo "::group::ps3recomp_host ${m:-(default)} -> exit $rc"; cat run.log; echo "::endgroup::"
+            [ "$rc" -eq 0 ] || { echo "::error::${m:-default}: exit $rc"; fail=1; }
+            ! grep -q "VUID" run.log || { echo "::error::validation message in ${m:-default}"; fail=1; }
+          done
+          exit $fail
+
+  # The toolkit's runtime library with our patch on Windows and macOS. These
+  # two are NOT required to pass yet: the patch added Linux-only code (futex,
+  # TSC clock, CPU pinning, Vulkan) and nobody has run the port on either
+  # system. A red job here is a list of what still has to be ported.
+  toolkit-windows:
+    name: Windows (toolkit runtime library, experimental)
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Install Ninja
+        run: choco install ninja -y --no-progress
+      - name: Toolkit with the patch applied
+        shell: bash
+        run: |
+          git clone --filter=blob:none "$UPSTREAM" ps3recomp
+          git -C ps3recomp checkout --quiet "$BASE"
+          git -C ps3recomp apply "$GITHUB_WORKSPACE/work/patches/ps3recomp.patch"
+      - name: Configure
+        working-directory: ps3recomp
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=clang-cl
+          -DCMAKE_CXX_COMPILER=clang-cl -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        working-directory: ps3recomp
+        run: cmake --build build
+      - name: The library exists
+        shell: bash
+        run: test -s ps3recomp/build/ps3recomp_runtime.lib
+
+  toolkit-macos:
+    name: macOS arm64 (toolkit runtime library, experimental)
+    runs-on: macos-14
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: brew install ninja sdl2 glslang spirv-cross
+      - name: Toolkit with the patch applied
+        run: |
+          git clone --filter=blob:none "$UPSTREAM" ps3recomp
+          git -C ps3recomp checkout --quiet "$BASE"
+          git -C ps3recomp apply "$GITHUB_WORKSPACE/work/patches/ps3recomp.patch"
+      - name: Configure
+        working-directory: ps3recomp
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        working-directory: ps3recomp
+        run: cmake --build build
+      - name: The library is arm64
+        working-directory: ps3recomp
+        run: lipo -info build/libps3recomp_runtime.a | grep -q arm64
+
+  # The whole game, on a machine of yours that has the disc's lift. Never on a
+  # GitHub-hosted runner. Set the repository variable SELF_HOSTED_BUILD to
+  # "true" and register a runner with the label `ps3-lift`.
+  game:
+    name: Full build and boot suite (self-hosted, has the lift)
+    if: ${{ vars.SELF_HOSTED_BUILD == 'true' }}
+    runs-on: [ self-hosted, ps3-lift ]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: The lift is on this machine
+        run: test -f work/src/recomp/ppu_recomp.h && test -d work/port/spu
+      - name: Build (both backends)
+        run: scripts/build.sh --tests
+      - name: Boot regression suite
+        run: work/tests/run_all.sh

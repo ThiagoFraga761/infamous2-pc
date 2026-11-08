@@ -120,3 +120,20 @@ um fork publicado: o patch é a fonte.
   needs it.
 - **The gate:** `scripts/check_clean.sh` refuses game formats, binaries,
   translated code and credentials before every commit and push.
+
+## CI (`.github/workflows/ci.yml`)
+
+Um runner público não tem o disco, então não compila o jogo. O CI cobre o que
+não precisa dele:
+
+| Job | O que faz | Bloqueia? |
+|---|---|---|
+| `hygiene` | `check_clean --tracked`, sintaxe dos scripts, Python compila, patch sem binário | sim |
+| `toolkit-linux` | ps3recomp no commit fixado + o patch, build com Vulkan, testes do walker, do runtime SPU e das opções, cenas Vulkan sob a validation layer (lavapipe) | sim |
+| `toolkit-windows` | biblioteca do toolkit com o patch (clang-cl) | não, experimental |
+| `toolkit-macos` | biblioteca do toolkit com o patch (arm64) | não, experimental |
+| `game` | build completo e `run_all.sh` num runner **seu**, que tenha o lift; só roda com a variável `SELF_HOSTED_BUILD=true` e um runner com o label `ps3-lift` | só se ligado |
+
+Windows e macOS ficam fora do bloqueio porque o patch trouxe código só de
+Linux (futex, relógio TSC, afinidade de CPU, Vulkan) e ninguém rodou o port
+nesses sistemas: o vermelho ali é a lista do que falta portar.

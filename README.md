@@ -1,5 +1,8 @@
 <p align="center"><img src="docs/screenshots/banner.jpg" alt="inFAMOUS 2 — port nativo para PC" width="100%"></p>
 
+[![CI](https://github.com/ThiagoFraga761/infamous2-pc/actions/workflows/ci.yml/badge.svg)](https://github.com/ThiagoFraga761/infamous2-pc/actions/workflows/ci.yml)
+
+
 <h1 align="center">inFAMOUS 2 — port nativo para PC (Linux, Vulkan)</h1>
 
 <p align="center">
