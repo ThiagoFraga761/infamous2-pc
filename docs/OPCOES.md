@@ -307,6 +307,29 @@ só. Na missão pesada de 07/11, um frame de 157 ms criou 727 texturas e mandou
 Com `PS3RECOMP_VK_STATS=1`, o fim da sessão mostra uma linha
 `texture blocks: ...` com quantos slots e blocos foram usados.
 
+### Lift do PPU: VMX em um store de 16 bytes e cache por site de `bctrl`
+
+Entra só depois de um relift (`scripts/lift.sh`) e do rebuild de todos os
+chunks. O código gerado muda em dois pontos:
+
+- **VMX.** `lvx`/`stvx` viram um acesso de 16 bytes, em vez de duas metades de
+  8. `vspltw`, `vsplth`, `vspltb`, `vspltish`, `vspltisw`, `vand`, `vandc`,
+  `vor`, `vxor`, `vnor`, `vsel`, `vmrgh*`, `vmrgl*`, `vmax/vmin` de byte,
+  `lvlx`, `lvrx`, `lvsl` e `lvsr` viram helpers do `ppu_vmx.h` que gravam o
+  registrador com um store só. Antes eram stores de 1, 4 ou 8 bytes, e o load
+  de 16 bytes da instrução seguinte esperava por eles (*store-forwarding
+  stall*). O resultado é bit a bit o mesmo.
+- **`bctrl`.** Cada site guarda o último alvo e chama a função direto. Erro de
+  cache, alvo nulo ou desconhecido e diagnóstico ligado continuam passando por
+  `ps3_indirect_call`, como antes.
+
+| Chave | Onde | Padrão | Para voltar |
+|---|---|---|---|
+| `PS3_ICALL_IC` | ambiente | ligado | `0`: nenhum site é preenchido e todo `bctrl` vai para `ps3_indirect_call` (sem relift) |
+| `PS3_ICALL_IC_STATS` | ambiente | desligado | `1` imprime `[icall] inline cache: N misses/s` a cada 2 s. Com `PS3_ICALL_IC=0`, o número é o total de `bctrl`/s |
+| `-DPPU_LEGACY_VMX` | flag de compilação dos chunks | — | `lvx`/`stvx` voltam às duas metades e os helpers novos voltam ao C antigo (só rebuild, sem relift) |
+| `PS3RECOMP_LIFT_FLAGS` | ambiente do `scripts/lift.sh` | vazio | `"--legacy-vmx --no-icall-cache"` gera o lift antigo, byte a byte |
+
 ---
 
 ## Summary (English)
@@ -355,3 +378,10 @@ checked against the code on 2026-11-07.
   the port too, and `PS3RECOMP_ENG_TEXMAP`, `PS3RECOMP_VK_TEXSUB_MB` (512),
   `PS3RECOMP_VK_UPLOAD_COALESCE` are on, `PS3RECOMP_ENG_TEXMISS_HASH` off;
   `0` (`1` for the last) restores the old path.
+- **PPU lift** (end of section 6, needs a relift): VMX moves, splats, merges
+  and bitwise ops now write the register with one 16-byte store, and every
+  `bctrl` has a per-site inline cache. `PS3_ICALL_IC=0` turns the cache off at
+  run time, `PS3_ICALL_IC_STATS=1` prints its misses per second,
+  `-DPPU_LEGACY_VMX` on the chunks brings the old VMX code back (rebuild only),
+  and `PS3RECOMP_LIFT_FLAGS="--legacy-vmx --no-icall-cache" scripts/lift.sh`
+  produces the old lift byte for byte.
