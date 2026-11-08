@@ -20,8 +20,10 @@
  * no line an SPU holds a reservation on. Writes are checked again after they
  * land and told through vm_store_coh_notify, as VM_ST_INL does.
  *
- * One entry is a wrap rather than a stand-in: CView::SetFov runs its lifted
- * body with other inputs, for the adjustable field of view (see below).
+ * Three entries are wraps rather than stand-ins: CView::SetFov runs its lifted
+ * body with other inputs, for the adjustable field of view, and the scripts'
+ * CView::POS_SCREEN_FROM_WORLD / POS_WORLD_FROM_SCREEN run theirs with the
+ * screen x moved into the ultrawide HUD's band (see below).
  *
  * The same file switches the lift's native blocks (hot loops inside functions
  * too big to replace, patched in by the same post-pass): g_ppu_native_blocks.
@@ -34,6 +36,7 @@
 #define PPU_INLINE_STORES 1
 #include "ppu_recomp.h"
 #include "ppu_native.h"
+#include "rsx_res_axis.h"   /* the toolkit's per-axis target scale, for the ultrawide markers */
 
 #include <math.h>
 #include <stdint.h>
@@ -461,6 +464,174 @@ extern "C" void ppu_native_set_fov_scale(float k)
     s_fov_state.store(1, std::memory_order_release);
 }
 
+/* ---- the scripts' screen<->world on the ultrawide HUD -------------------- */
+
+/* With the Ultrawide option the picture is drawn wider than 16:9 (the targets
+ * by PS3RECOMP_RT_ASPECT, the camera's tan_x by PS3RECOMP_ASPECT above) and
+ * the toolkit squeezes the flat draws into the display buffer -- the HUD --
+ * into the middle r of the width, r = (16/9) / aspect (PS3RECOMP_UW_HUD,
+ * rsx_draw_engine.c). A marker the game places over a world position is
+ * computed in the wide picture's NDC and then drawn squeezed, so it lands at
+ * r times its object's x: nearer the centre than the object.
+ *
+ * The projection is func_004415E0(view r3, world point v2) -> v2 = {x, y,
+ * depth, depth}: the point in the view's frame (rows at +0x70..+0xA0), then
+ * x = -side / (depth * tan_x(+0x2A8)) and y = up / (depth * tan_y(+0x2AC)),
+ * NDC in [-1, 1] across the picture. Within 1e-4 of the eye plane it gives
+ * {-1e6, -1e6, 0, 0} instead. func_0043E840 is its inverse (same tangents).
+ * Callers of the projection:
+ *   - CView::POS_SCREEN_FROM_WORLD (0x4E2FC0) and POS_WORLD_FROM_SCREEN
+ *     (0x4E2E84), the script methods (no C++ caller; the scripts reach them
+ *     through the member table). r4 is the argument block: the point in at
+ *     +0x10, the result out at +0, each one aligned quadword.
+ *   - C++, all gameplay: the lightning skill's pick of the NPC nearest the
+ *     screen centre (0xEFC44), CSteerableMissile (0x10DB50), the grapple
+ *     (0x138B40), CPoleSkill (0x21EE5C), CScreenAimSkill::FIRE_AMMO
+ *     (0x2D43E0, which also takes the inverse), and the buddies' attack
+ *     tactics, Kuo/Nix picking on-screen targets (0x6AE84, 0x6B1D0, 0x6BE68,
+ *     0x6E000, 0x70D94). None of them draws: they want the wide picture,
+ *     where the player sees the target, and stay as they are.
+ * The game's UI is script-built (CWidget, CTextBox... are script objects),
+ * so the world markers are expected to come from the script method.
+ *
+ * In the HUD's band the marker belongs at x_hud = x / r, which is the
+ * projection with tan_x * r -- the 16:9 tangent for the camera's tan_y. The
+ * wrap runs the lifted method and divides the x it wrote by r (the eye-plane
+ * case, depth 0, is left alone); the inverse gets its x times r for the call
+ * and the argument back afterwards. Only for views of the camera's class
+ * (CView, vtable 0x008F0FD0); a reflection or an orthographic view is left
+ * alone. A world point outside the 16:9 band so gets |x| > 1, as it would on
+ * a 16:9 screen: the scripts treat it as off screen (or pin it to the edge),
+ * and the HUD's scissor would cut a marker drawn out there anyway. Scripts
+ * that use the method for something else than drawing (is it on screen?)
+ * see the 16:9 screen too, as on the PS3.
+ *
+ * r comes from the same configuration the targets do (rsx_res_axis.h: the
+ * 1280x720 target's image size each way), so it is the r of the HUD squeeze.
+ * Nothing changes when the picture is not wider than 16:9 or the HUD is not
+ * squeezed (PS3RECOMP_UW_HUD=0).
+ *
+ * PS3RECOMP_UW_MARKERS=1 (default off): on. A value between 0 and 1 is taken
+ *   as r itself (for a test against a squeeze the toolkit does not report).
+ * PS3RECOMP_UW_MARKERS_LOG=1: a line every 2 s with the calls a second, the
+ *   ones on views left alone, and the last x before and after; with the
+ *   markers off it only counts, so a run can tell whether the scripts call
+ *   the method at all.
+ * PS3RECOMP_NATIVE_PPU_OFF=004E2E84 leaves the inverse alone (004E2FC0 the
+ *   forward one). */
+extern void func_004E2FC0(ppu_context*);
+extern void func_004E2E84(ppu_context*);
+
+static std::mutex s_uwm_mu;
+static std::atomic<int> s_uwm_state{-1};   /* -1 unread, 0 nothing to do, 1 on (adjust or count) */
+static int s_uwm_adjust, s_uwm_log;
+static float s_uwm_r = 1.0f;
+static std::atomic<uint64_t> s_uwm_fwd, s_uwm_inv, s_uwm_other;
+static std::atomic<uint32_t> s_uwm_last_in, s_uwm_last_out;
+static __thread int t_uwm_in;   /* inside a lifted body this wrap is running */
+
+/* The HUD squeeze's r: 1 when the HUD is not squeezed. */
+static float uwm_hud_ratio(void)
+{
+    const char* e = getenv("PS3RECOMP_UW_HUD");
+    if (e && (e[0] == '0' || !strcmp(e, "stretch") || !strcmp(e, "off"))) return 1.0f;
+    const rsx_res_axis* a = rsx_res_axis_get();
+    if (!a->on) return 1.0f;
+    const float fx = (float)rsx_res_axis_up(1280u, a->xn, a->xd) / 1280.0f;
+    const float fy = (float)rsx_res_axis_up(720u, a->yn, a->yd) / 720.0f;
+    return fx > fy * 1.0001f ? fy / fx : 1.0f;
+}
+static int uwm_init(void)
+{
+    std::lock_guard<std::mutex> g(s_uwm_mu);
+    int st = s_uwm_state.load(std::memory_order_relaxed);
+    if (st >= 0) return st;
+    const char* e = getenv("PS3RECOMP_UW_MARKERS");
+    const double want = e ? atof(e) : 0.0;
+    s_uwm_log = (e = getenv("PS3RECOMP_UW_MARKERS_LOG")) && atoi(e) != 0;
+    s_uwm_r = want > 0.0 && want < 1.0 ? (float)want : want != 0.0 ? uwm_hud_ratio() : 1.0f;
+    s_uwm_adjust = s_uwm_r < 0.9999f;
+    if (s_uwm_adjust)
+        fprintf(stderr, "[uw-markers] on: the scripts' screen x goes into the HUD's middle %.1f%% (r %.4f)\n",
+                s_uwm_r * 100.0f, s_uwm_r);
+    else if (want != 0.0)
+        fprintf(stderr, "[uw-markers] nothing to do: the HUD is not squeezed (16:9 picture or PS3RECOMP_UW_HUD=0)\n");
+    if (s_uwm_log && !s_uwm_adjust) fprintf(stderr, "[uw-markers] counting only\n");
+    st = s_uwm_adjust || s_uwm_log;
+    s_uwm_state.store(st, std::memory_order_release);
+    return st;
+}
+static void uwm_tick(void)
+{
+    static std::atomic<uint64_t> next;
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    const uint64_t now = (uint64_t)ts.tv_sec;
+    uint64_t t = next.load(std::memory_order_relaxed);
+    if (!t) { next.compare_exchange_strong(t, now + 2); return; }
+    if (now < t || !next.compare_exchange_strong(t, now + 2)) return;
+    const uint32_t bi = s_uwm_last_in.load(std::memory_order_relaxed), bo = s_uwm_last_out.load(std::memory_order_relaxed);
+    float xi, xo;
+    memcpy(&xi, &bi, 4);
+    memcpy(&xo, &bo, 4);
+    fprintf(stderr, "[uw-markers] screen-from-world %.1f/s, world-from-screen %.1f/s, other views %.1f/s; "
+            "last x %.4f -> %.4f\n", (double)s_uwm_fwd.exchange(0, std::memory_order_relaxed) / 2.0,
+            (double)s_uwm_inv.exchange(0, std::memory_order_relaxed) / 2.0,
+            (double)s_uwm_other.exchange(0, std::memory_order_relaxed) / 2.0, xi, xo);
+}
+/* The views this applies to: the camera's class. */
+static int uwm_enter(const ppu_context* c)
+{
+    int st = s_uwm_state.load(std::memory_order_acquire);
+    if (__builtin_expect(st < 0, 0)) st = uwm_init();
+    if (!st || t_uwm_in) return 0;
+    if (s_uwm_log) uwm_tick();
+    if (vm_read32((uint32_t)c->gpr[3]) != k_vt_view) {
+        if (s_uwm_log) s_uwm_other.fetch_add(1, std::memory_order_relaxed);
+        return 0;
+    }
+    return 1;
+}
+static inline float uwm_f(uint32_t b) { float f; memcpy(&f, &b, 4); return f; }
+static inline uint32_t uwm_u(float f) { uint32_t b; memcpy(&b, &f, 4); return b; }
+
+/* func_004E2FC0, CView::POS_SCREEN_FROM_WORLD(view r3, args r4) */
+static int nat_pos_screen(ppu_context* c)
+{
+    if (!uwm_enter(c)) return 0;
+    const uint32_t out = (uint32_t)c->gpr[4] & ~0xFu;
+    t_uwm_in = 1;
+    func_004E2FC0(c);
+    t_uwm_in = 0;
+    if (s_uwm_log) s_uwm_fwd.fetch_add(1, std::memory_order_relaxed);
+    if (!s_uwm_adjust) return 1;
+    /* {-1e6, -1e6, 0, 0}: the point is on the eye plane; a sentinel, kept. */
+    if (vm_read32(out + 8) == 0) return 1;
+    const uint32_t xb = vm_read32(out);
+    const uint32_t nb = uwm_u(uwm_f(xb) / s_uwm_r);
+    vm_write32(out, nb);
+    /* v2 too, as the method leaves it (lane 0, big-endian bytes) */
+    uint8_t* v = (uint8_t*)&c->vr[2];
+    v[0] = (uint8_t)(nb >> 24); v[1] = (uint8_t)(nb >> 16); v[2] = (uint8_t)(nb >> 8); v[3] = (uint8_t)nb;
+    if (s_uwm_log) { s_uwm_last_in.store(xb, std::memory_order_relaxed); s_uwm_last_out.store(nb, std::memory_order_relaxed); }
+    return 1;
+}
+
+/* func_004E2E84, CView::POS_WORLD_FROM_SCREEN(view r3, args r4) */
+static int nat_pos_world(ppu_context* c)
+{
+    if (!uwm_enter(c)) return 0;
+    const uint32_t in = ((uint32_t)c->gpr[4] + 0x10u) & ~0xFu;
+    const uint32_t xb = s_uwm_adjust ? vm_read32(in) : 0;
+    if (s_uwm_adjust) vm_write32(in, uwm_u(uwm_f(xb) * s_uwm_r));
+    t_uwm_in = 1;
+    func_004E2E84(c);
+    t_uwm_in = 0;
+    if (s_uwm_adjust) vm_write32(in, xb);
+    if (s_uwm_log) s_uwm_inv.fetch_add(1, std::memory_order_relaxed);
+    return 1;
+}
+
 __attribute__((constructor)) static void ppu_native_init(void)
 {
     for (const ppu_native_desc& d : s_funcs) ppu_native_register_desc(&d);
@@ -468,6 +639,12 @@ __attribute__((constructor)) static void ppu_native_init(void)
      * (no `lifted`): the compare mode just runs it. */
     static const ppu_native_desc setfov = { 0x0043E370u, "CView::SetFov", nat_setfov, nullptr, nullptr, 0 };
     ppu_native_register_desc(&setfov);
+    static const ppu_native_desc pos_screen = { 0x004E2FC0u, "CView::POS_SCREEN_FROM_WORLD", nat_pos_screen,
+                                                nullptr, nullptr, 0 };
+    static const ppu_native_desc pos_world = { 0x004E2E84u, "CView::POS_WORLD_FROM_SCREEN", nat_pos_world,
+                                               nullptr, nullptr, 0 };
+    ppu_native_register_desc(&pos_screen);
+    ppu_native_register_desc(&pos_world);
     if (getenv("PS3RECOMP_PPU_PROBE")) probe_register(std::make_index_sequence<N_PROBES>{});
     const char* e = getenv("PS3RECOMP_NATIVE_PPU");
     g_ppu_native_blocks = !e || atoi(e) != 0;

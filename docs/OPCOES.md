@@ -78,8 +78,9 @@ simples é **F1 > Vídeo > Ultrawide** (`[video] ultrawide = 1` no
 `settings.ini`, vale depois de reiniciar): o port lê o formato do monitor e
 liga `RT_ASPECT=auto` e `ASPECT=auto` juntos. O HUD, os menus e os vídeos ficam
 em 16:9 no centro (vídeos e telas 2D em pillarbox). Os marcadores presos ao
-mundo (alvos, ícones sobre pessoas) ainda usam a posição 16:9. Custo medido na
-área pesada a 3440×1440: 108 → 101 fps.
+mundo (alvos, ícones sobre pessoas) ainda saem perto demais do centro; a
+correção (`PS3RECOMP_UW_MARKERS=1`, fase 3b) é opt-in e ainda não foi vista no
+jogo. Custo medido na área pesada a 3440×1440: 108 → 101 fps.
 
 | Variável | Padrão | Efeito |
 |---|---|---|
@@ -94,6 +95,8 @@ mundo (alvos, ícones sobre pessoas) ainda usam a posição 16:9. Custo medido n
 | `PS3RECOMP_UW_HUD_TARGETS` | vazio | Outros alvos de cor (hex) onde a UI é desenhada, além dos display buffers |
 | `PS3RECOMP_UW_EVAL` | ligado | `0` não roda o vertex program na CPU para classificar quads de largura toda |
 | `PS3RECOMP_UW_PRECLEAR` | ligado | `0` não limpa de preto as barras do pillarbox |
+| `PS3RECOMP_UW_MARKERS` | desligado | `1` corrige os marcadores presos ao mundo: o `CView::POS_SCREEN_FROM_WORLD` dos scripts devolve o x no espaço do HUD centralizado (x ÷ r) e o `POS_WORLD_FROM_SCREEN` faz o inverso. Só age com o HUD apertado (alvo largo e `UW_HUD` ligado). Um valor entre 0 e 1 é usado como o próprio r (teste) |
+| `PS3RECOMP_UW_MARKERS_LOG` | desligado | `1` loga a cada 2 s quantas chamadas por segundo os scripts fazem e o último x antes/depois. Sem `UW_MARKERS` só conta: diz se os marcadores passam mesmo por esse método |
 
 Exemplo, 3440×1440 Hor+:
 
@@ -226,6 +229,7 @@ olhar. Os commits do port são `626b7c4` (leva 1), `bb80d0c` (leva 2),
 | `PS3RECOMP_POST` | ligado | `0` |
 | `PS3_FREEZE_DUMP` | ligado | `0` |
 | `PS3RECOMP_NATIVE_PPU_OFF=0043E370` | — | Tira o wrap do FOV (`PS3RECOMP_NATIVE_PPU=0` tira todos os nativos de PPU) |
+| `PS3RECOMP_NATIVE_PPU_OFF=004E2FC0,004E2E84` | — | Tira os wraps dos marcadores do ultrawide (um ou outro sozinho também vale) |
 
 ### Leva 2: esperas da main, pipelines assíncronos, escala por eixo, teclado e mouse
 
@@ -292,7 +296,8 @@ checked against the code on 2026-11-07.
 - **Ultrawide** (section 2): true Hor+ is experimental. F1 > Video >
   Ultrawide (`[video] ultrawide = 1`, after a restart) reads the monitor's
   shape and keeps the HUD, menus and videos in a centred 16:9; markers pinned
-  to the world still use the 16:9 position. `PS3RECOMP_UW_HUD=0` stretches the
+  to the world still sit too near the centre unless `PS3RECOMP_UW_MARKERS=1`
+  (opt-in, not yet seen in game). `PS3RECOMP_UW_HUD=0` stretches the
   HUD. ~7% slower at 3440x1440 in the heavy area.
 - **Performance** (section 3): `PS3RECOMP_FPS_LIMIT` (60 from the settings
   file), `PS3RECOMP_BE_THREAD`, `PS3_MAIN_WAITS=1` (opt-in: the main thread
