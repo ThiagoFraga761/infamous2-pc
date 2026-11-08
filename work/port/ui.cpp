@@ -71,6 +71,9 @@ extern "C" void cellPad_kbm_set_sensitivity(float s);
 extern "C" void cellPad_kbm_set_invert_y(int on);
 extern "C" void cellPad_kbm_set_deadzone(float d);
 extern "C" const char* cellPad_kbm_binding(int i, char* key, int keycap);
+extern "C" int cellPad_kbm_set_map(const char* spec);
+extern "C" int cellPad_kbm_get_map(char* out, int cap);
+extern "C" int cellPad_kbm_code_name(int code, char* out, int cap);
 
 namespace {
 
@@ -536,7 +539,147 @@ const char* kbm_key_label(const char* key)
     return key;
 }
 
-void page_kbm(port_settings& s)
+/* The rows of the rebinding table, in the order a player looks for them. */
+const char* const k_kbm_rows[] = {
+    "LS_UP", "LS_DOWN", "LS_LEFT", "LS_RIGHT", "WALK",
+    "CROSS", "CIRCLE", "SQUARE", "TRIANGLE", "L1", "R1", "L2", "R2", "L3", "R3",
+    "UP", "DOWN", "LEFT", "RIGHT", "START", "SELECT",
+    "RS_UP", "RS_DOWN", "RS_LEFT", "RS_RIGHT",
+};
+
+/* A rebinding under way: waiting for the key that does `action`, in place of
+ * `replace` ("" adds a key). */
+struct {
+    const char* action = nullptr;
+    std::string replace, warn;
+} g_kbm_cap;
+std::string g_kbm_note;        /* what the last change did, under the buttons */
+
+/* One change to the layout ("Key=ACTION ..."), applied now and saved. The
+ * map in the settings stays what cellPad reports, only what differs from the
+ * default. */
+bool kbm_edit(port_settings& s, const std::string& edit)
+{
+    cellPad_kbm_set_map((std::string(s.kbm_map) + " " + edit).c_str());
+    char out[sizeof s.kbm_map];
+    if (cellPad_kbm_get_map(out, sizeof out) < 0) {
+        cellPad_kbm_set_map(s.kbm_map);
+        g_kbm_note = "Teclas trocadas demais para gravar: restaure o padrão de alguma.";
+        return false;
+    }
+    memcpy(s.kbm_map, out, sizeof out);
+    save();
+    return true;
+}
+
+void kbm_capture_begin(const char* action, const std::string& replace)
+{
+    g_kbm_cap.action = action;
+    g_kbm_cap.replace = replace;
+    g_kbm_cap.warn.clear();
+    g_kbm_note.clear();
+    rsx_ui_capture_input(1);
+}
+
+void kbm_capture_end()
+{
+    g_kbm_cap.action = nullptr;
+    rsx_ui_capture_input(0);
+    ImGui::CloseCurrentPopup();
+}
+
+/* A key, a mouse button or the wheel answers. Modal, so that nothing behind
+ * it can be clicked. Circle on the pad cancels on its release: its press
+ * would also be the start screen's "back" once this has closed. */
+void kbm_capture_popup(port_settings& s)
+{
+    if (!g_kbm_cap.action) return;
+    static const char* const id = "Trocar tecla";
+    if (!ImGui::IsPopupOpen(id)) ImGui::OpenPopup(id);
+    const ImVec2 c = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(c, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal(id, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove |
+                                             ImGuiWindowFlags_NoSavedSettings))
+        return;
+    ImGui::Text("Aperte a tecla ou o botão do mouse para: %s", kbm_action_label(g_kbm_cap.action));
+    if (!g_kbm_cap.warn.empty()) ImGui::TextUnformatted(g_kbm_cap.warn.c_str());
+    ImGui::TextDisabled("Esc cancela");
+    const int code = rsx_ui_captured_input();
+    char key[32];
+    if (code == SDL_SCANCODE_ESCAPE || ImGui::IsKeyReleased(ImGuiKey_GamepadFaceRight)) {
+        kbm_capture_end();
+    } else if (code == SDL_SCANCODE_F1) {
+        g_kbm_cap.warn = "F1 abre o menu: escolha outra tecla.";
+    } else if (code >= 0 && !cellPad_kbm_code_name(code, key, sizeof key)) {
+        g_kbm_cap.warn = "Essa tecla não pode ser usada: escolha outra.";
+    } else if (code >= 0) {
+        /* A key does one thing: if it did another, it moves here. */
+        std::string was;
+        char k[32];
+        for (int i = 0;; i++) {
+            const char* a = cellPad_kbm_binding(i, k, sizeof k);
+            if (!a) break;
+            if (!strcmp(k, key) && strcmp(a, g_kbm_cap.action)) was = a;
+        }
+        std::string edit;
+        if (!g_kbm_cap.replace.empty() && g_kbm_cap.replace != key) edit = g_kbm_cap.replace + "=NONE ";
+        edit += std::string(key) + "=" + g_kbm_cap.action;
+        if (kbm_edit(s, edit) && !was.empty())
+            g_kbm_note = std::string(kbm_key_label(key)) + " saiu de \"" + kbm_action_label(was.c_str()) + "\".";
+        kbm_capture_end();
+    }
+    ImGui::EndPopup();
+}
+
+/* One row per action, whether or not it has a key: click a key to change it,
+ * x to take it off, + to add another. */
+void kbm_table(port_settings& s)
+{
+    struct Bound { std::string key; std::string action; };
+    std::vector<Bound> all;
+    char key[32];
+    for (int i = 0;; i++) {
+        const char* a = cellPad_kbm_binding(i, key, sizeof key);
+        if (!a) break;
+        all.push_back({ key, a });
+    }
+    const float fs = ImGui::GetFontSize();
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const float gap = fs * 0.5f, pad = fs * 0.4f;
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(pad, fs * 0.12f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(st.ItemSpacing.x, fs * 0.25f));
+    for (const char* a : k_kbm_rows) {
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(kbm_action_label(a));
+        ImGui::TableSetColumnIndex(1);
+        ImGui::PushID(a);
+        const float room = ImGui::GetContentRegionAvail().x;
+        float used = 0.0f;
+        const auto place = [&](float w) {   /* on this line if it fits, else the next */
+            if (used > 0.0f && used + gap + w <= room) { ImGui::SameLine(0.0f, gap); used += gap + w; }
+            else used = w;
+        };
+        const float x_w = ImGui::CalcTextSize("x").x + pad * 2.0f;
+        for (const Bound& b : all) {
+            if (b.action != a) continue;
+            const char* label = kbm_key_label(b.key.c_str());
+            place(ImGui::CalcTextSize(label).x + pad * 2.0f + 2.0f + x_w);
+            ImGui::PushID(b.key.c_str());
+            if (ImGui::Button(label)) kbm_capture_begin(a, b.key);
+            ImGui::SameLine(0.0f, 2.0f);
+            if (ImGui::Button("x")) { g_kbm_note.clear(); kbm_edit(s, b.key + "=NONE"); }
+            ImGui::PopID();
+        }
+        place(ImGui::CalcTextSize("+").x + pad * 2.0f);
+        if (ImGui::Button("+")) kbm_capture_begin(a, "");
+        ImGui::PopID();
+    }
+    ImGui::PopStyleVar(2);
+}
+
+void page_kbm_options(port_settings& s)
 {
     bool b = s.kbm;
     pin_begin(PORT_PIN_KBM);
@@ -570,28 +713,50 @@ void page_kbm(port_settings& s)
          "ainda sem mira 1:1. \"Início do giro\" é onde o analógico começa no menor movimento: "
          "suba se o mouse devagar não mexe a câmera, desça se ela dá tranco. O mouse é capturado "
          "no primeiro clique ou tecla dentro do jogo; Alt+Tab e F1 soltam. Funciona junto com o "
-         "controle. Para trocar teclas: [keyboard] map em user/settings.ini.");
+         "controle.");
+}
+
+void page_kbm_keys(port_settings& s)
+{
+    hint("Clique numa tecla para trocá-la; + acrescenta outra e x tira. Vale na hora.");
+    const bool locked = !s.kbm || pinned(PORT_PIN_KBM_MAP);
+    ImGui::BeginDisabled(locked);
+    if (ImGui::Button("Restaurar teclas padrão")) {
+        g_kbm_note.clear();
+        cellPad_kbm_set_map("");
+        s.kbm_map[0] = 0;
+        save();
+    }
+    ImGui::EndDisabled();
+    if (pinned(PORT_PIN_KBM_MAP) && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Definido por uma variável de ambiente (play.sh ou o terminal)");
+    if (!g_kbm_note.empty()) { ImGui::SameLine(); ImGui::TextUnformatted(g_kbm_note.c_str()); }
     /* The layout as cellPad has it (the default plus [keyboard] map). It
      * scrolls inside what is left above the menu's bottom row. */
     const float fs = ImGui::GetFontSize();
     const float h = ImGui::GetContentRegionAvail().y - fs * 3.6f;
-    if (h < fs * 3.0f) return;
-    if (ImGui::BeginChild("kbm_keys", ImVec2(0, h), ImGuiChildFlags_Borders)) {
-        if (ImGui::BeginTable("kbm_map", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
-            char key[32];
-            for (int i = 0;; i++) {
-                const char* a = cellPad_kbm_binding(i, key, sizeof key);
-                if (!a) break;
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0);
-                ImGui::TextUnformatted(kbm_key_label(key));
-                ImGui::TableSetColumnIndex(1);
-                ImGui::TextUnformatted(kbm_action_label(a));
+    if (h >= fs * 3.0f) {
+        if (ImGui::BeginChild("kbm_keys", ImVec2(0, h), ImGuiChildFlags_Borders)) {
+            ImGui::BeginDisabled(locked);
+            if (ImGui::BeginTable("kbm_map", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+                ImGui::TableSetupColumn("##action", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+                ImGui::TableSetupColumn("##keys", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+                kbm_table(s);
+                ImGui::EndTable();
             }
-            ImGui::EndTable();
+            ImGui::EndDisabled();
         }
+        ImGui::EndChild();
     }
-    ImGui::EndChild();
+    kbm_capture_popup(s);
+}
+
+void page_kbm(port_settings& s)
+{
+    if (!ImGui::BeginTabBar("kbm_pages")) return;
+    if (ImGui::BeginTabItem("Mouse")) { page_kbm_options(s); ImGui::EndTabItem(); }
+    if (ImGui::BeginTabItem("Teclas")) { page_kbm_keys(s); ImGui::EndTabItem(); }
+    ImGui::EndTabBar();
 }
 
 /* What changed since the game started and needs a restart. */
@@ -876,7 +1041,7 @@ void draw_start()
     bg->AddRectFilled(ImVec2(tp.x + 4, tp.y + th * 1.06f), ImVec2(tp.x + 4 + fs * 5.0f, tp.y + th * 1.06f + 5), k_accent);
 
     /* Circle, Escape: back to the main page. */
-    if (g_page != MENU_MAIN &&
+    if (g_page != MENU_MAIN && !g_kbm_cap.action &&
         (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)))
         go_page(MENU_MAIN);
 

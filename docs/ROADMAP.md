@@ -90,8 +90,7 @@ em qualquer área do jogo, e depois **4K a 120 com upscaling**. Estado em
 
 1. Mira 1:1 no mouse, escrevendo yaw/pitch da câmera (fase 2, precisa de
    engenharia reversa).
-2. Remapear teclas pelo menu.
-3. Controle da porta 0 fixado pelo `SDL_JoystickID` (um pad virtual da Steam
+2. Controle da porta 0 fixado pelo `SDL_JoystickID` (um pad virtual da Steam
    não rouba a vaga).
 
 **Mods** (ideias do Thiago, 18/10, em ordem):
@@ -177,7 +176,6 @@ everywhere in the game; then **4K at 120 with upscaling**. State on
   - longer draw distance, HDR, high-resolution textures.
 - **Controls:**
   - 1:1 mouse aiming;
-  - rebinding in the menu;
   - port 0 pinned by joystick ID.
 - **Mods:** an in-game mod hub, a map of every blast shard, map improvements,
   and a short co-op investigation (see the table above).

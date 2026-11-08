@@ -45,7 +45,7 @@ typedef struct port_settings {
     int kbm_sens;           /* mouse sensitivity in hundredths, 10..500: PS3RECOMP_KBM_SENS */
     int kbm_invert_y;       /* PS3RECOMP_KBM_INVERT_Y */
     int kbm_deadzone;       /* the stick's starting deflection, percent 0..60: PS3RECOMP_KBM_DEADZONE */
-    char kbm_map[512];      /* "Key=ACTION ..." over the default layout: PS3RECOMP_KBM_MAP */
+    char kbm_map[1024];     /* "Key=ACTION ..." over the default layout: PS3RECOMP_KBM_MAP */
 } port_settings;
 
 /* The defaults: today's play.sh -- 720p, a window, mailbox, black bars,
@@ -71,6 +71,7 @@ enum {
     PORT_PIN_SHARPEN = 1 << 15, PORT_PIN_KBM = 1 << 16, PORT_PIN_KBM_SENS = 1 << 17,
     PORT_PIN_KBM_INVERT_Y = 1 << 18, PORT_PIN_KBM_DEADZONE = 1 << 19,
     PORT_PIN_ULTRAWIDE = 1 << 20, PORT_PIN_ASYNC_EFFECTS = 1 << 21,
+    PORT_PIN_KBM_MAP = 1 << 22,
 };
 
 /* Before port_settings_export: each field whose variable is set takes the
