@@ -139,7 +139,7 @@ jobs:
 
   toolkit-macos:
     name: macOS arm64 (toolkit runtime library, experimental)
-    runs-on: macos-14
+    runs-on: macos-latest
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
