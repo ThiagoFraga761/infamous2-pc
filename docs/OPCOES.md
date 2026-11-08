@@ -114,9 +114,10 @@ PS3RECOMP_RES_SCALE=2 PS3RECOMP_RT_ASPECT=3440x1440 PS3RECOMP_ASPECT=3440x1440 w
 | `PS3RECOMP_VK_PIPE_WARM` | — | ligado | Pipelines vistos antes (`~/.cache/ps3recomp/pipekeys-v1.bin`) são recriados em segundo plano na partida. `0` desliga |
 | `PS3RECOMP_VK_PIPE_WARM_THREADS` | — | CPUs/4, entre 2 e 4 | Threads `vk-warm` (também os workers da fila assíncrona) |
 | `PS3RECOMP_VK_PIPE_WARM_MAX` | — | `4096` | Quantos registros aquecer na partida; `0` grava a lista e não aquece |
-| `PS3RECOMP_VK_PIPE_ASYNC` | — | ligado | Variantes de pipeline nunca vistas são montadas nas `vk-warm`. `0` desliga |
-| `PS3RECOMP_VK_PIPE_SKIP` | — | `0` | `1` pula o draw cujo pipeline está atrasado (tem pop visual) |
-| `PS3RECOMP_VK_PIPE_SKIP_MS` | — | `4` | Atraso tolerado antes de pular |
+| `PS3RECOMP_VK_PIPE_ASYNC` | — | ligado | Variantes de pipeline nunca vistas são montadas nas `vk-warm`. `0` desliga (e desliga a linha de baixo junto) |
+| `PS3RECOMP_VK_SHADER_ASYNC` | — | ligado | A tradução de programa novo (HLSL → SPIR-V no glslang, 10–50 ms cada) e a criação dos módulos saem da thread do RSX e vão para as `vk-warm`, várias em paralelo. O draw que usa o programa espera só se ainda não estiver pronto (ou pula, com a linha de baixo). Mesmo texto, mesmo tradutor, mesmo `.spv`: o quadro sai igual. `0` volta a traduzir na thread do RSX |
+| `PS3RECOMP_VK_PIPE_SKIP` | `[performance] async_effects` | `0` | `1` pula o draw cujo programa novo ainda está sendo traduzido ou cujo pipeline está atrasado, em vez de travar o quadro. O efeito some por alguns frames (pop visual). No F1: **Desempenho > Compilar efeitos novos em segundo plano**, vale na hora |
+| `PS3RECOMP_VK_PIPE_SKIP_MS` | — | `4` | Atraso tolerado, contado da criação do pipeline, antes de pular |
 | `PS3RECOMP_VK_PIPE_NICE` | — | `5` | nice das threads `vk-warm` (0–19) |
 | `MESA_SHADER_CACHE_DIR` | — | `~/.cache/ps3recomp/mesa` (play.sh) | Cache de shaders do driver só deste jogo, com 4 GB (`MESA_SHADER_CACHE_MAX_SIZE`). Evita os primeiros frames de vários segundos depois de um update do Mesa |
 | `PS3RECOMP_NATIVE_SSAO`, `PS3RECOMP_NATIVE_LIGHTING` | — | `1` (main.cpp) | Oclusão ambiente e iluminação deferida na GPU. `0` volta ao job de SPU; `2` compara os dois |
@@ -179,6 +180,17 @@ Ligados pelo `work/play.sh`:
 | `PS3RECOMP_FTLOG` | `1` | A cada 10 s, a distribuição dos tempos de frame: mediana, p99, pior frame e 1% low |
 | `PS3RECOMP_VK_HITCH` | 2000 ÷ limite ms, no mínimo 25 | Todo frame mais longo que isso gera uma linha `[vk hitch]` com as causas (builds de pipeline, esperas de GPU, criação de textura, o que cada thread esperou, run-queue, page faults). `-1` desliga |
 | `PS3RECOMP_VK_HITCH_SCHED` | `1` | `0` mantém a linha `[vk hitch]`, mas sem ler `/proc` |
+
+Na linha `[vk hitch]`, programa novo aparece em quatro campos: `sh_xlate`
+(traduções do glslang no frame, em qualquer thread, inclusive nas `vk-warm`),
+`sh_sync` (quanto a thread do RSX ou a de gravação ficou parada por programa
+novo: tradução feita ali, espera por uma tradução ou variante em andamento,
+claim da lista de aquecimento, variante montada ali), `sh_skip` (draws pulados
+porque o programa ainda não estava pronto, só contagem) e `sh_decomp` (a thread
+do RSX decompilando o microcódigo em HLSL, que continua lá). A CPU das `vk-warm`
+no frame sai como `cpu warm=`. O log ganha uma linha `[shader-async]` com o
+resumo: programas prontos antes do draw, esperados, feitos pelo próprio draw,
+abandonados por demora e pulados.
 | `PS3_STALL_MS` / `PS3_STALL_DIR` | `2500` / `<log>-stalls/` | Sem frame por esse tempo, o próprio jogo grava a pilha de todas as threads |
 | `PS3_FREEZE_DUMP` | ligado | Junto com cada stall, grava o estado do runtime (fences, guards e chains de job, workloads do SPURS, filas e flags de evento, sinais perdidos), no momento e de novo 15 s depois. `0` desliga |
 | `PS3_FREEZE_DIR` / `PS3_FREEZE_LOG` | `work/runs/freezes/<log>/` / o log da sessão | Destino do estado e de onde sai o fim do log (512 KB) |
@@ -269,6 +281,13 @@ em `VK_RING_VERTEX_MB`.
 | `PS3RECOMP_BQ_SPIN` | `4000` | PAUSEs do worker antes do futex (0–1000000) |
 | `PS3RECOMP_BQ_MWAITX` / `_US` | `0` / `50` | `1` faz o worker esperar com MONITORX/MWAITX (AMD) |
 
+### Tradução de shader fora do frame (shader-async-2)
+
+| Variável | Padrão | Para voltar |
+|---|---|---|
+| `PS3RECOMP_VK_SHADER_ASYNC` | ligado (precisa de `PS3RECOMP_VK_PIPE_ASYNC`) | `0` traduz programa novo na thread do RSX, como antes |
+| `PS3RECOMP_VK_PIPE_SKIP` | `0` (opt-in, F1 ou `[performance] async_effects = 1`) | — |
+
 ---
 
 ## Summary (English)
@@ -297,7 +316,11 @@ checked against the code on 2026-11-07.
 - **Performance** (section 3): `PS3RECOMP_FPS_LIMIT` (60 from the settings
   file), `PS3RECOMP_BE_THREAD`, `PS3_MAIN_WAITS=1` (opt-in: the main thread
   goes from 99% to 46% CPU under a 60 fps cap), pipeline warm-up and async
-  variants, native Edge kernels (decompression and compression on, index
+  variants, new programs translated on the vk-warm threads
+  (`PS3RECOMP_VK_SHADER_ASYNC`, on; `0` translates on the RSX thread again)
+  and, opt-in, draws skipped while their new program or pipeline is still
+  being made (`PS3RECOMP_VK_PIPE_SKIP=1`, F1 > Performance, `[performance]
+  async_effects`, live), native Edge kernels (decompression and compression on, index
   opt-in).
 - **Controls, language, paths** (section 4): `PS3RECOMP_KBM*`,
   `PS3_SYS_LANG`, `PS3_VOICE_LANG`, `PS3_TEXT_LANG`, `PS3_SAVEDATA_ROOT`,

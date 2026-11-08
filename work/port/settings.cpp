@@ -54,6 +54,7 @@ void port_settings_defaults(port_settings* s)
     s->fps_limit = 60;
     s->fps_counter = 0;
     s->record_thread = 1;
+    s->async_effects = 0;
     s->skip_launcher = 0;
     s->fullres_particles = 1;
     s->aniso = 16;
@@ -165,6 +166,7 @@ int port_settings_load(port_settings* s, const char* path)
             if (k == "fps_limit") set_int(&s->fps_limit, v, 0, 1000);
             else if (k == "fps_counter") set_int(&s->fps_counter, v, 0, 1);
             else if (k == "record_thread") set_int(&s->record_thread, v, 0, 1);
+            else if (k == "async_effects") set_int(&s->async_effects, v, 0, 1);
         } else if (section == "launcher") {
             if (k == "skip") set_int(&s->skip_launcher, v, 0, 1);
         } else if (section == "mods") {
@@ -199,6 +201,7 @@ int port_settings_save(const port_settings* in, const char* path)
     if (s_pinned & PORT_PIN_TEXT)          memcpy(out.text, s_file.text, sizeof out.text);
     if (s_pinned & PORT_PIN_FPS_LIMIT)     out.fps_limit = s_file.fps_limit;
     if (s_pinned & PORT_PIN_RECORD_THREAD) out.record_thread = s_file.record_thread;
+    if (s_pinned & PORT_PIN_ASYNC_EFFECTS) out.async_effects = s_file.async_effects;
     if (s_pinned & PORT_PIN_PARTICLES)     out.fullres_particles = s_file.fullres_particles;
     if (s_pinned & PORT_PIN_ANISO)         out.aniso = s_file.aniso;
     if (s_pinned & PORT_PIN_POST_AA)       out.post_aa = s_file.post_aa;
@@ -246,6 +249,8 @@ int port_settings_save(const port_settings* in, const char* path)
             "fps_limit = %d      ; 0 = none\n"
             "fps_counter = %d\n"
             "record_thread = %d\n"
+            "async_effects = %d  ; 1 = new effects compiled in the background: one may be missing\n"
+            "                    ;     for a few frames instead of the frame stalling\n"
             "\n[launcher]\n"
             "skip = %d\n"
             "\n[mods]\n"
@@ -261,7 +266,7 @@ int port_settings_save(const port_settings* in, const char* path)
             s->scale, s->fullscreen, s->vsync, s->stretch, s->display,
             k_aa_names[s->post_aa], k_up_names[s->upscale], k_down_names[s->downscale],
             sharpen_text(s->sharpen).c_str(), s->fov, s->ultrawide,
-            s->voice, s->text, s->fps_limit, s->fps_counter, s->record_thread,
+            s->voice, s->text, s->fps_limit, s->fps_counter, s->record_thread, s->async_effects,
             s->skip_launcher, s->fullres_particles, s->aniso, s->mods_on,
             s->kbm, s->kbm_sens / 100.0, s->kbm_invert_y, s->kbm_deadzone / 100.0, s->kbm_map);
     const int ok = fclose(f) == 0;
@@ -339,6 +344,8 @@ unsigned port_settings_from_env(port_settings* s)
     }
     if ((v = getenv("PS3RECOMP_FPS_LIMIT")))     { s->fps_limit = atoi(v) < 0 ? 0 : atoi(v); pin |= PORT_PIN_FPS_LIMIT; }
     if ((v = getenv("PS3RECOMP_BE_THREAD")))     { s->record_thread = env_on(v); pin |= PORT_PIN_RECORD_THREAD; }
+    /* The backend's reading: a number above 0 is on. */
+    if ((v = getenv("PS3RECOMP_VK_PIPE_SKIP")))  { s->async_effects = atoi(v) > 0; pin |= PORT_PIN_ASYNC_EFFECTS; }
     if ((v = getenv("PS3RECOMP_FULLRES_PARTICLES"))) { s->fullres_particles = env_on(v); pin |= PORT_PIN_PARTICLES; }
     if ((v = getenv("PS3RECOMP_ANISO")))         { s->aniso = atoi(v) < 0 ? 0 : atoi(v) > 16 ? 16 : atoi(v); pin |= PORT_PIN_ANISO; }
     /* cellPad's reading of PS3RECOMP_KBM: anything but a leading '0' is on. */
@@ -408,6 +415,7 @@ void port_settings_export(const port_settings* s)
                       : !strcmp(t, "latino") || !strcmp(t, "spanish") ? "es" : "pt");
     snprintf(b, sizeof b, "%d", s->fps_limit);     put("PS3RECOMP_FPS_LIMIT", b);
     put("PS3RECOMP_BE_THREAD", s->record_thread ? "1" : "0");
+    put("PS3RECOMP_VK_PIPE_SKIP", s->async_effects ? "1" : "0");
     /* The GPU reads the guest's vertex bytes itself: the CPU fetch it
      * replaces was what made turning the camera drop to ~40 fps in the city,
      * where most geometry is rebuilt by the SPUs every frame. */
