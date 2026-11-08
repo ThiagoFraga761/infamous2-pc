@@ -1975,10 +1975,10 @@ index 8be6664a..34c4e1b7 100644
          if (s_sockets[s].p2p && n > 0) {
              uint32_t un = (uint32_t)n;
 diff --git a/libs/spurs/cellSpurs.c b/libs/spurs/cellSpurs.c
-index 688ff041..91d8c033 100644
+index 688ff041..19e57dd3 100644
 --- a/libs/spurs/cellSpurs.c
 +++ b/libs/spurs/cellSpurs.c
-@@ -14,11 +14,18 @@
+@@ -14,11 +14,20 @@
  #include "../../runtime/ps3_log.h"
  #include "spu_workload.h"   /* SPU image -> lifted-entry dispatch (runtime/spu) */
  #include "spurs_taskset.h"  /* REAL BE CellSpursTaskset layout builders (fork Option-B) */
@@ -1993,11 +1993,13 @@ index 688ff041..91d8c033 100644
 +#ifndef _WIN32
 +#include <sched.h>
 +#endif
++#ifndef _WIN32
 +#include <unistd.h>
++#endif
  
  /* Bridge the real (BE) taskset EA + selected taskId from CreateTask to the image-22
   * SPU dispatch (spu_workload.c), so spurs_pm_build_context can build the leaf's
-@@ -38,24 +45,13 @@ uint32_t g_ydkj_real_spurs_ea   = 0;   /* real CellSpurs instance EA (for the ta
+@@ -38,24 +47,13 @@ uint32_t g_ydkj_real_spurs_ea   = 0;   /* real CellSpurs instance EA (for the ta
  #else
  #include <pthread.h>
  #include <time.h>
@@ -2023,7 +2025,7 @@ index 688ff041..91d8c033 100644
  
  typedef struct {
      int         in_use;
-@@ -67,8 +63,6 @@ typedef struct {
+@@ -67,8 +65,6 @@ typedef struct {
      u64         argA;
  } SpursTask;
  
@@ -2032,7 +2034,7 @@ index 688ff041..91d8c033 100644
  static SpursTask     s_tasks[CELL_SPURS_MAX_TASK];
  static u32           s_next_task_id = 0;
  
-@@ -370,7 +364,7 @@ static void spurs_ef_set_locked(uint32_t ea, u16 bits)
+@@ -370,7 +366,7 @@ static void spurs_ef_set_locked(uint32_t ea, u16 bits)
                  spu_taskset_latch_wake(taskset_ea);
              }
              static int _n = 0;
@@ -2041,7 +2043,7 @@ index 688ff041..91d8c033 100644
                  fprintf(stderr, "[cellSpurs] EventFlagSet 0x%08X woke %d parked "
                                  "task(s) on taskset 0x%08X (no wait slot)\n",
                          ea, woke, taskset_ea);
-@@ -410,33 +404,76 @@ void spurs_ef_set_from_spu(uint32_t flag_ea, uint16_t bits)
+@@ -410,33 +406,76 @@ void spurs_ef_set_from_spu(uint32_t flag_ea, uint16_t bits)
   * A host "kernel" thread per instance polls readyCount/signal and runs the
   * workload's policy module (spurs_policy.c) — the virtual SPU.
   * =====================================================================*/
@@ -2137,7 +2139,7 @@ index 688ff041..91d8c033 100644
  } s_inst[MAX_SPURS_INST];
  
  static struct SpursInst* spurs_inst_find(u32 ea)
-@@ -446,10 +483,21 @@ static struct SpursInst* spurs_inst_find(u32 ea)
+@@ -446,10 +485,21 @@ static struct SpursInst* spurs_inst_find(u32 ea)
      return NULL;
  }
  
@@ -2161,7 +2163,7 @@ index 688ff041..91d8c033 100644
      struct SpursInst* si = spurs_inst_find(spurs_ea);
      if (!si) {
          for (int i = 0; i < MAX_SPURS_INST; i++)
-@@ -457,22 +505,50 @@ static s32 spurs_initialize_common(u32 spurs_ea, u32 nspus, const char* prefix)
+@@ -457,22 +507,50 @@ static s32 spurs_initialize_common(u32 spurs_ea, u32 nspus, const char* prefix)
      }
      if (!si) return CELL_SPURS_CORE_ERROR_NOMEM;
  
@@ -2222,7 +2224,7 @@ index 688ff041..91d8c033 100644
      printf("[cellSpurs] Initialize \"%s\" ea=0x%08X nSpus=%u (real BE instance + kernel poll)\n",
             si->prefix, spurs_ea, si->nspus);
      return CELL_OK;
-@@ -481,28 +557,39 @@ static s32 spurs_initialize_common(u32 spurs_ea, u32 nspus, const char* prefix)
+@@ -481,28 +559,39 @@ static s32 spurs_initialize_common(u32 spurs_ea, u32 nspus, const char* prefix)
  s32 cellSpursInitialize(CellSpurs* spurs, s32 nSpus, s32 spuPriority,
                          s32 ppuPriority, u8 exitIfNoWork)
  {
@@ -2273,7 +2275,7 @@ index 688ff041..91d8c033 100644
  
      /* After this, no job completion can ever reach the attached queues, so a
       * worker parked on one with an infinite timeout would sleep forever -- and
-@@ -521,59 +608,50 @@ s32 cellSpursFinalize(CellSpurs* spurs)
+@@ -521,59 +610,50 @@ s32 cellSpursFinalize(CellSpurs* spurs)
      if (!si)
          return CELL_SPURS_CORE_ERROR_STAT;
  
@@ -2363,7 +2365,7 @@ index 688ff041..91d8c033 100644
      return CELL_OK;
  }
  
-@@ -581,54 +659,93 @@ s32 cellSpursAttributeSetSpuThreadGroupType(CellSpursAttribute* attr,
+@@ -581,54 +661,93 @@ s32 cellSpursAttributeSetSpuThreadGroupType(CellSpursAttribute* attr,
                                              s32 type)
  {
      (void)type;
@@ -2480,7 +2482,7 @@ index 688ff041..91d8c033 100644
      return CELL_OK;
  }
  
-@@ -687,45 +804,53 @@ uint32_t spurs_port_queue(uint32_t port)
+@@ -687,45 +806,53 @@ uint32_t spurs_port_queue(uint32_t port)
      return port < 64 ? s_spurs_port_queue[port] : 0;
  }
  
@@ -2563,7 +2565,7 @@ index 688ff041..91d8c033 100644
      printf("[cellSpurs] AttachLv2EventQueue(queue=%u) port=%u%s\n", queue, p,
             isDynamic ? " (dynamic)" : "");
      return CELL_OK;
-@@ -733,8 +858,14 @@ s32 cellSpursAttachLv2EventQueue(CellSpurs* spurs, u32 queue, u8* port,
+@@ -733,8 +860,14 @@ s32 cellSpursAttachLv2EventQueue(CellSpurs* spurs, u32 queue, u8* port,
  
  s32 cellSpursDetachLv2EventQueue(CellSpurs* spurs, u8 port)
  {
@@ -2580,7 +2582,7 @@ index 688ff041..91d8c033 100644
      printf("[cellSpurs] DetachLv2EventQueue(port=%u)\n", port);
      return CELL_OK;
  }
-@@ -743,6 +874,21 @@ s32 cellSpursDetachLv2EventQueue(CellSpurs* spurs, u8 port)
+@@ -743,6 +876,21 @@ s32 cellSpursDetachLv2EventQueue(CellSpurs* spurs, u8 port)
   * Taskset
   * =====================================================================*/
  
@@ -2602,7 +2604,7 @@ index 688ff041..91d8c033 100644
  s32 cellSpursCreateTaskset(CellSpurs* spurs, CellSpursTaskset* taskset,
                             u64 args, const u8* priority, u32 maxContention)
  {
-@@ -779,6 +925,7 @@ s32 cellSpursCreateTaskset(CellSpurs* spurs, CellSpursTaskset* taskset,
+@@ -779,6 +927,7 @@ s32 cellSpursCreateTaskset(CellSpurs* spurs, CellSpursTaskset* taskset,
      spurs_taskset_init(taskset_ea, spurs_ea, args, /*wid*/0,
                         (uint32_t)sizeof(CellSpursTaskset), /*evf1*/0, /*evf2*/0);
      g_ydkj_real_taskset_ea = taskset_ea;
@@ -2610,7 +2612,7 @@ index 688ff041..91d8c033 100644
  
      g_ydkj_real_spurs_ea = spurs_ea;   /* capture for the taskset-policy handoff (LS[0x1C0]) */
      printf("[cellSpurs] CreateTaskset() ea=0x%08X spurs=0x%08X (real BE layout)\n", taskset_ea, spurs_ea);
-@@ -1012,9 +1159,10 @@ s32 cellSpursCreateTask(CellSpursTaskset* taskset, CellSpursTaskId* taskId,
+@@ -1012,9 +1161,10 @@ s32 cellSpursCreateTask(CellSpursTaskset* taskset, CellSpursTaskId* taskId,
                  size_t sz = spu_elf_image_size(host_elf, 2u * 1024 * 1024);
                  if (sz)
                      /* Async: SPURS tasks are persistent workers — running them
@@ -2624,7 +2626,7 @@ index 688ff041..91d8c033 100644
              }
              return CELL_OK;
          }
-@@ -1123,7 +1271,7 @@ s32 cellSpursCreateTaskWithAttribute(CellSpursTaskset* taskset,
+@@ -1123,7 +1273,7 @@ s32 cellSpursCreateTaskWithAttribute(CellSpursTaskset* taskset,
       * (a no-context task may not block -- SPU task-lib waits then fail with
       * ERROR_STAT). Learn the real field offsets from the bytes. */
      { uint32_t aea = (uint32_t)(uintptr_t)attr;
@@ -2633,7 +2635,7 @@ index 688ff041..91d8c033 100644
          fprintf(stderr, "[cellSpurs] CreateTaskWithAttr attr=0x%08X raw:", aea);
          for (int o = 0; o < 0x40; o += 4) fprintf(stderr, " %08X", vm_read32(aea + o));
          fprintf(stderr, "\n"); } }
-@@ -1206,64 +1354,120 @@ s32 cellSpursTaskAttributeInitialize(CellSpursTaskAttribute* attr)
+@@ -1206,64 +1356,120 @@ s32 cellSpursTaskAttributeInitialize(CellSpursTaskAttribute* attr)
   * Workload
   * =====================================================================*/
  
@@ -2740,7 +2742,7 @@ index 688ff041..91d8c033 100644
 +        b[SPURS_WKL_STATE1 + wnum]  = WKL_STATE_PREPARING;
 +        b[SPURS_WKL_STATUS1 + wnum] = 0;
 +        b[SPURS_WKL_EVENT1 + wnum]  = 0;
-+    }
+     }
 +    spurs_ctl_end(ea, snap);
 +    vm_write32(wid_ea, wnum);
 +    if (wnum >= CELL_SPURS_MAX_WORKLOAD) return CELL_SPURS_POLICY_MODULE_ERROR_AGAIN;
@@ -2757,7 +2759,7 @@ index 688ff041..91d8c033 100644
 +    if (hook) {
 +        vm_write64(f1 + 0x30, hook);
 +        vm_write64(f1 + 0x38, hook_arg);
-     }
++    }
 +    spurs_ctl_begin(ea, snap);
 +    if (hook) b[SPURS_WKL_EVENT1 + wnum] |= 0x02;
 +    b[SPURS_WKL_IDLE2 + wnum]   = 0;
@@ -2807,7 +2809,7 @@ index 688ff041..91d8c033 100644
  }
  
  /* Real (BE) CellSpursWorkloadAttribute offsets (libspurs layout; the game's
-@@ -1285,35 +1489,13 @@ enum {
+@@ -1285,35 +1491,13 @@ enum {
      WKATTR_HOOK_ARG   = 0x34,   /* be u32 */
  };
  
@@ -2845,7 +2847,7 @@ index 688ff041..91d8c033 100644
  
      /* Decode the REAL BE attribute from guest memory. */
      u32 pm_ea = vm_read32(attr_ea + WKATTR_PM);
-@@ -1324,66 +1506,9 @@ s32 cellSpursAddWorkloadWithAttribute(CellSpurs* spurs,
+@@ -1324,66 +1508,9 @@ s32 cellSpursAddWorkloadWithAttribute(CellSpurs* spurs,
      u32 nmcls = vm_read32(attr_ea + WKATTR_NAME_CLASS);
      u32 nmins = vm_read32(attr_ea + WKATTR_NAME_INST);
  
@@ -2915,7 +2917,7 @@ index 688ff041..91d8c033 100644
  }
  
  /* The SDK-versioned workload-attribute initializer (the import the game links;
-@@ -1393,7 +1518,13 @@ s32 _cellSpursWorkloadAttributeInitialize(u64 attr_ea, u32 revision, u32 sdkVers
+@@ -1393,7 +1520,13 @@ s32 _cellSpursWorkloadAttributeInitialize(u64 attr_ea, u32 revision, u32 sdkVers
                                            u64 pm_ea, u32 size, u64 data,
                                            u64 prio_ea, u32 minContention)
  {
@@ -2930,7 +2932,7 @@ index 688ff041..91d8c033 100644
      vm_write32((u32)attr_ea + WKATTR_REVISION,   revision);
      vm_write32((u32)attr_ea + WKATTR_SDKVERSION, sdkVersion);
      vm_write32((u32)attr_ea + WKATTR_PM,         (u32)pm_ea);
-@@ -1403,7 +1534,10 @@ s32 _cellSpursWorkloadAttributeInitialize(u64 attr_ea, u32 revision, u32 sdkVers
+@@ -1403,7 +1536,10 @@ s32 _cellSpursWorkloadAttributeInitialize(u64 attr_ea, u32 revision, u32 sdkVers
          *(vm_base + (u32)attr_ea + WKATTR_PRIORITY + i) =
              prio_ea ? *(vm_base + (u32)prio_ea + i) : 0;
      vm_write32((u32)attr_ea + WKATTR_MIN_CONT, minContention);
@@ -2942,7 +2944,7 @@ index 688ff041..91d8c033 100644
      vm_write32((u32)attr_ea + WKATTR_NAME_CLASS, 0);
      vm_write32((u32)attr_ea + WKATTR_NAME_INST,  0);
      vm_write32((u32)attr_ea + WKATTR_HOOK,     0);
-@@ -1413,9 +1547,22 @@ s32 _cellSpursWorkloadAttributeInitialize(u64 attr_ea, u32 revision, u32 sdkVers
+@@ -1413,9 +1549,22 @@ s32 _cellSpursWorkloadAttributeInitialize(u64 attr_ea, u32 revision, u32 sdkVers
      return CELL_OK;
  }
  
@@ -2966,7 +2968,7 @@ index 688ff041..91d8c033 100644
      vm_write32((u32)attr_ea + WKATTR_NAME_CLASS, (u32)nameClass_ea);
      vm_write32((u32)attr_ea + WKATTR_NAME_INST,  (u32)nameInstance_ea);
      printf("[cellSpurs] WorkloadAttributeSetName(attr=0x%08X, \"%s\", \"%s\")\n",
-@@ -1427,15 +1574,38 @@ s32 cellSpursWorkloadAttributeSetName(u64 attr_ea, u64 nameClass_ea, u64 nameIns
+@@ -1427,15 +1576,38 @@ s32 cellSpursWorkloadAttributeSetName(u64 attr_ea, u64 nameClass_ea, u64 nameIns
  
  s32 cellSpursRemoveWorkload(CellSpurs* spurs, CellSpursWorkloadId wid)
  {
@@ -2995,8 +2997,8 @@ index 688ff041..91d8c033 100644
      printf("[cellSpurs] RemoveWorkload(wid=%u)\n", wid);
      return CELL_OK;
 +
-+}
-+
+ }
+ 
 +s32 cellSpursWorkloadAttributeSetShutdownCompletionEventHook(u64 attr_ea, u64 hook_ea, u64 arg_ea)
 +{
 +    if (!attr_ea || !hook_ea) return CELL_SPURS_POLICY_MODULE_ERROR_NULL_POINTER;
@@ -3004,13 +3006,13 @@ index 688ff041..91d8c033 100644
 +    vm_write32((u32)attr_ea + WKATTR_HOOK, (u32)hook_ea);
 +    vm_write32((u32)attr_ea + WKATTR_HOOK_ARG, (u32)arg_ea);
 +    return CELL_OK;
- }
- 
++}
++
 +/* SDK inline wrapper over the export above (not itself a firmware export). */
  s32 cellSpursWorkloadAttributeInitialize(CellSpursWorkloadAttribute* attr,
                                           u32 revision, u32 sdkVersion,
                                           const void* pm, u32 sizePm,
-@@ -1443,325 +1613,66 @@ s32 cellSpursWorkloadAttributeInitialize(CellSpursWorkloadAttribute* attr,
+@@ -1443,325 +1615,66 @@ s32 cellSpursWorkloadAttributeInitialize(CellSpursWorkloadAttribute* attr,
                                           u32 minContention,
                                           u32 maxContention)
  {
@@ -3379,7 +3381,7 @@ index 688ff041..91d8c033 100644
      return CELL_OK;
  }
  
-@@ -1769,58 +1680,82 @@ s32 cellSpursReadyCountCompareAndSwap(CellSpurs* spurs,
+@@ -1769,58 +1682,82 @@ s32 cellSpursReadyCountCompareAndSwap(CellSpurs* spurs,
                                         CellSpursWorkloadId wid,
                                         u32* old, u32 compare, u32 value)
  {
@@ -3506,7 +3508,7 @@ index 688ff041..91d8c033 100644
      return CELL_OK;
  }
  
-@@ -1892,7 +1827,7 @@ s32 cellSpursEventFlagSet(CellSpursEventFlag* eventFlag, u16 bits)
+@@ -1892,7 +1829,7 @@ s32 cellSpursEventFlagSet(CellSpursEventFlag* eventFlag, u16 bits)
      if (!sync)
          return CELL_SPURS_TASK_ERROR_STAT;
  
@@ -3515,7 +3517,7 @@ index 688ff041..91d8c033 100644
          fprintf(stderr, "[cellSpurs] EventFlagSet#%d flagEA=0x%08X bits=0x%04X "
                  "events=0x%04X used=0x%04X pend=0x%04X mode=0x%04X\n",
                  _n, ea, (unsigned)bits,
-@@ -2000,11 +1935,12 @@ s32 cellSpursEventFlagWait(CellSpursEventFlag* eventFlag, u16* bits,
+@@ -2000,11 +1937,12 @@ s32 cellSpursEventFlagWait(CellSpursEventFlag* eventFlag, u16* bits,
  
      __atomic_sub_fetch(&s_ef_ppu_waiters, 1, __ATOMIC_SEQ_CST);
      ef_wait_stats(ea, ef_t0.QuadPart);
@@ -3531,7 +3533,7 @@ index 688ff041..91d8c033 100644
          fprintf(stderr, "[cellSpurs] EventFlagWait WAKE tid=%lu flagEA=0x%08X "
                  "pattern=0x%04X got=0x%04X (waits=%u)\n",
                  (unsigned long)GetCurrentThreadId(), ea, pattern, current, waits); }
-@@ -2159,6 +2095,10 @@ static struct {
+@@ -2159,6 +2097,10 @@ static struct {
      u16 max_grab;
      int run_count;
      volatile long running;   /* 1 while a host thread walks this chain */
@@ -3542,7 +3544,7 @@ index 688ff041..91d8c033 100644
  } s_jobchains[MAX_JOBCHAINS];
  
  static void jc_dump_commands(const char* tag, u32 ea, int max_words)
-@@ -2252,7 +2192,7 @@ s32 cellSpursCreateJobChainWithAttribute(u64 spurs_ea, u64 jc_ea, u64 attr_ea)
+@@ -2252,7 +2194,7 @@ s32 cellSpursCreateJobChainWithAttribute(u64 spurs_ea, u64 jc_ea, u64 attr_ea)
          } else if (_n == 3) {
              printf("[cellSpurs] CreateJobChainWA raw dumps suppressed from here\n");
          }
@@ -3551,7 +3553,7 @@ index 688ff041..91d8c033 100644
      }
      printf("[cellSpurs] CreateJobChainWithAttribute(jc=0x%08X entry=0x%08X sizeDesc=%u maxGrab=%u name=\"%s\")\n",
             (u32)jc_ea, entry, sd_mg >> 16, sd_mg & 0xFFFFu,
-@@ -2285,7 +2225,7 @@ s32 cellSpursCreateJobChain(u64 spurs_ea, u64 jc_ea, u64 entry_ea,
+@@ -2285,7 +2227,7 @@ s32 cellSpursCreateJobChain(u64 spurs_ea, u64 jc_ea, u64 entry_ea,
      if (!jc_ea) return CELL_SPURS_TASK_ERROR_NULL_POINTER;
  
      static int _n = 0;
@@ -3560,7 +3562,7 @@ index 688ff041..91d8c033 100644
          printf("[cellSpurs] CreateJobChain(jc=0x%08X entry=0x%08X sizeDesc=%u maxGrab=%u "
                 "maxCont=%u autoReq=%u)\n",
                 (u32)jc_ea, (u32)entry_ea, sizeJobDescriptor, maxGrabbedJob,
-@@ -2322,12 +2262,96 @@ enum {                              /* CellSpursJobHeader (48 B) */
+@@ -2322,12 +2264,96 @@ enum {                              /* CellSpursJobHeader (48 B) */
      JH_SIZE          = 0x30,
  };
  
@@ -3661,7 +3663,7 @@ index 688ff041..91d8c033 100644
  
      { static int _n = 0;
        if (_n < 8) {
-@@ -2339,14 +2363,14 @@ static void jc_run_one_job(u32 job_ea, int idx, u32 size_desc)
+@@ -2339,14 +2365,14 @@ static void jc_run_one_job(u32 job_ea, int idx, u32 size_desc)
            }
            printf("\n");
        }
@@ -3679,7 +3681,7 @@ index 688ff041..91d8c033 100644
      }
      /* A jobchain job is NOT a SPURS task: Sony's jm2 stages the whole working
       * set in local store and enters the job's CRT with r3 = CellSpursJobContext2*
-@@ -2355,7 +2379,7 @@ static void jc_run_one_job(u32 job_ea, int idx, u32 size_desc)
+@@ -2355,7 +2381,7 @@ static void jc_run_one_job(u32 job_ea, int idx, u32 size_desc)
       * DMA traffic at all. spu_workload_dispatch_job reproduces jm2's staging.
       * Synchronous by design: a job runs to completion, and the chain's own
       * NEXT/CALL/RET commands are what order them. */
@@ -3688,7 +3690,7 @@ index 688ff041..91d8c033 100644
  }
  
  /* Walk one chain's command stream. Bounded: a malformed or self-looping stream
-@@ -2381,6 +2405,82 @@ static void jc_run_one_job(u32 job_ea, int idx, u32 size_desc)
+@@ -2381,6 +2407,82 @@ static void jc_run_one_job(u32 job_ea, int idx, u32 size_desc)
   * what makes "run this job when I say so" mean anything.
   * -----------------------------------------------------------------------*/
  
@@ -3771,7 +3773,7 @@ index 688ff041..91d8c033 100644
  #define MAX_JOBGUARDS 32
  static struct {
      u32 ea;          /* guest CellSpursJobGuard address (128-byte aligned) */
-@@ -2388,9 +2488,32 @@ static struct {
+@@ -2388,9 +2490,32 @@ static struct {
      u32 reset;       /* value to restore when autoReset is set             */
      u32 pending;     /* notifications received, not yet consumed        */
      u32 auto_reset;
@@ -3804,7 +3806,7 @@ index 688ff041..91d8c033 100644
  static int jg_find(u32 ea)
  {
      for (int i = 0; i < MAX_JOBGUARDS; i++)
-@@ -2411,17 +2534,23 @@ s32 cellSpursJobGuardInitialize(u64 jc_ea, u64 guard_ea, u32 notify_count,
+@@ -2411,17 +2536,23 @@ s32 cellSpursJobGuardInitialize(u64 jc_ea, u64 guard_ea, u32 notify_count,
      u32 ea = (u32)guard_ea;
      if (!ea) return CELL_SPURS_TASK_ERROR_NULL_POINTER;
  
@@ -3829,7 +3831,7 @@ index 688ff041..91d8c033 100644
  
      /* Mirror the count into guest memory. The SPU side reads the guard on
       * hardware; keeping the two consistent costs nothing and makes a guest-side
-@@ -2447,13 +2576,69 @@ s32 cellSpursJobGuardNotify(u64 guard_ea)
+@@ -2447,13 +2578,69 @@ s32 cellSpursJobGuardNotify(u64 guard_ea)
       * OBSERVED zero, which threw away any notify that arrived while the job
       * was still running -- the title notified 6 times and the chain completed
       * 2 laps, so the thread waiting on the other 4 completions never woke. */
@@ -3901,7 +3903,7 @@ index 688ff041..91d8c033 100644
            printf("[cellSpurs] JobGuardNotify(0x%08X) -> %u remaining\n",
                   ea, s_jobguards[i].count); }
      return CELL_OK;
-@@ -2465,8 +2650,13 @@ s32 cellSpursJobGuardReset(u64 guard_ea)
+@@ -2465,8 +2652,13 @@ s32 cellSpursJobGuardReset(u64 guard_ea)
      u32 ea = (u32)guard_ea;
      int i = jg_find(ea);
      if (i < 0) return CELL_SPURS_TASK_ERROR_INVAL;
@@ -3915,7 +3917,7 @@ index 688ff041..91d8c033 100644
      return CELL_OK;
  }
  
-@@ -2474,27 +2664,76 @@ s32 cellSpursJobGuardReset(u64 guard_ea)
+@@ -2474,27 +2666,76 @@ s32 cellSpursJobGuardReset(u64 guard_ea)
   * chain then gives up this pass rather than spinning the walker thread
   * forever). An unknown guard opens immediately -- a chain guarded by something
   * we never saw initialised must not deadlock the walker. */
@@ -3998,7 +4000,7 @@ index 688ff041..91d8c033 100644
      return 0;
  }
  
-@@ -2527,6 +2766,13 @@ static u64 spurs_event_data3_probe(void)
+@@ -2527,6 +2768,13 @@ static u64 spurs_event_data3_probe(void)
      return (u64)(unsigned)v;
  }
  
@@ -4012,7 +4014,7 @@ index 688ff041..91d8c033 100644
  static void jc_signal_done(u32 jc_ea, int job_index)
  {
      /* Carry the job's mailbox answer in the completion event. On hardware the
-@@ -2541,6 +2787,7 @@ static void jc_signal_done(u32 jc_ea, int job_index)
+@@ -2541,6 +2789,7 @@ static void jc_signal_done(u32 jc_ea, int job_index)
       * so a data2 pinned at 0 never ends that loop -- with the chain's lwmutex
       * held, which blocks the main thread's teardown behind it. A chain-level
       * signal (job_index < 0) sends 0. */
@@ -4020,7 +4022,7 @@ index 688ff041..91d8c033 100644
      u64 d2 = (u64)(unsigned)(job_index < 0 ? 0 : job_index);
      u64 mbox = 0, d3 = 0;
      (void)spurs_event_data3_probe();   /* prime d3_probe_valid */
-@@ -2574,7 +2821,7 @@ static void jc_signal_done(u32 jc_ea, int job_index)
+@@ -2574,7 +2823,7 @@ static void jc_signal_done(u32 jc_ea, int job_index)
                                                  ? spurs_event_data3_probe()
                                                  : (answers_a_count ? mbox : 0));
          static int n = 0;
@@ -4029,7 +4031,7 @@ index 688ff041..91d8c033 100644
              printf("[cellSpurs] chain 0x%08X job %d done -> event queue %u "
                     "(data2=%llu rc=%d)\n",
                     jc_ea, job_index, s_spurs_event_queue[i],
-@@ -2582,10 +2829,189 @@ static void jc_signal_done(u32 jc_ea, int job_index)
+@@ -2582,10 +2831,189 @@ static void jc_signal_done(u32 jc_ea, int job_index)
      }
  }
  
@@ -4221,7 +4223,7 @@ index 688ff041..91d8c033 100644
      /* Bound IDLE steps, not total steps. A SPURS job chain is frequently a
       * SERVICE LOOP -- guard, job, sync, next, repeat -- and is meant to run for
       * the lifetime of the subsystem. A flat cap on total commands therefore
-@@ -2596,21 +3022,64 @@ static void jc_execute(u32 entry_ea, u32 jc_ea, u32 size_desc)
+@@ -2596,21 +3024,64 @@ static void jc_execute(u32 entry_ea, u32 jc_ea, u32 size_desc)
      int idle = 0;
      for (;; idle++) {
          if (idle > 4096) break;
@@ -4290,7 +4292,7 @@ index 688ff041..91d8c033 100644
              pc += 8; continue;
          }
          if (op == 1) { pc = (u32)(cmd & ~7ull); continue; }   /* RESET_PC */
-@@ -2619,22 +3088,45 @@ static void jc_execute(u32 entry_ea, u32 jc_ea, u32 size_desc)
+@@ -2619,22 +3090,45 @@ static void jc_execute(u32 entry_ea, u32 jc_ea, u32 size_desc)
          if (op == 7) {
              if (ext == (7 | (15 << 3))) {                     /* END */
                  printf("[cellSpurs] chain 0x%08X: END after %d job(s)\n", jc_ea, jobs);
@@ -4342,7 +4344,7 @@ index 688ff041..91d8c033 100644
          }
          /* NOP(0) / SYNC+LWSYNC(2, one virtual SPU: nothing to wait for) /
           * FLUSH(5) / JOBLIST(6, nested arrays TODO) / SET_LABEL */
-@@ -2643,6 +3135,8 @@ static void jc_execute(u32 entry_ea, u32 jc_ea, u32 size_desc)
+@@ -2643,6 +3137,8 @@ static void jc_execute(u32 entry_ea, u32 jc_ea, u32 size_desc)
      printf("[cellSpurs] chain 0x%08X: 4096 commands with no job run after %d "
             "job(s) -- malformed?\n",
             jc_ea, jobs);
@@ -4351,7 +4353,7 @@ index 688ff041..91d8c033 100644
  }
  
  static DWORD WINAPI jc_thread(LPVOID p)
-@@ -2655,12 +3149,12 @@ static DWORD WINAPI jc_thread(LPVOID p)
+@@ -2655,12 +3151,12 @@ static DWORD WINAPI jc_thread(LPVOID p)
       * Confirms timing-vs-never before committing to the async rewrite. */
      { const char* d = getenv("SPURS_JC_DELAY");
        if (d && *d) Sleep((unsigned)atoi(d)); }
@@ -4367,7 +4369,7 @@ index 688ff041..91d8c033 100644
      return 0;
  }
  
-@@ -2693,7 +3187,9 @@ static s32 jc_start(u64 jc_ea, const char* who)
+@@ -2693,7 +3189,9 @@ static s32 jc_start(u64 jc_ea, const char* who)
          if (s_off || !s_jobchains[i].entry_ea) return CELL_OK;
          /* Coalesce: a chain already being walked must not start twice. */
          if (_InterlockedCompareExchange(&s_jobchains[i].running, 1, 0) == 0) {
@@ -4378,7 +4380,7 @@ index 688ff041..91d8c033 100644
              if (th) CloseHandle(th);
              else s_jobchains[i].running = 0;
          }
-@@ -2724,10 +3220,11 @@ s32 cellSpursRunJobChain(u64 jc_ea)
+@@ -2724,10 +3222,11 @@ s32 cellSpursRunJobChain(u64 jc_ea)
  s32 cellSpursShutdownJobChain(u64 jc_ea)
  {
      static int _n = 0;
@@ -4391,7 +4393,7 @@ index 688ff041..91d8c033 100644
              return CELL_OK;
          }
      }
-@@ -2739,7 +3236,7 @@ s32 cellSpursShutdownJobChain(u64 jc_ea)
+@@ -2739,7 +3238,7 @@ s32 cellSpursShutdownJobChain(u64 jc_ea)
  s32 cellSpursJoinJobChain(u64 jc_ea)
  {
      static int _n = 0;
@@ -4400,7 +4402,7 @@ index 688ff041..91d8c033 100644
      /* Run/Kick walk the chain on a host thread, so Join has to wait for it.
       * Returning at once told the title its jobs were done while they were
       * still running. The Simpsons Arcade Game runs and joins a chain every
-@@ -2764,7 +3261,7 @@ s32 cellSpursJoinJobChain(u64 jc_ea)
+@@ -2764,7 +3263,7 @@ s32 cellSpursJoinJobChain(u64 jc_ea)
  s32 cellSpursJobChainGetError(u64 jc_ea, u64 cause_out_ea)
  {
      static int _n = 0;
@@ -4409,7 +4411,7 @@ index 688ff041..91d8c033 100644
      if (cause_out_ea) vm_write32((u32)cause_out_ea, 0);
      return CELL_OK;
  }
-@@ -2827,7 +3324,7 @@ s32 _cellSpursQueueInitialize(u64 spurs_ea, u64 taskset_ea, u64 queue_ea,
+@@ -2827,7 +3326,7 @@ s32 _cellSpursQueueInitialize(u64 spurs_ea, u64 taskset_ea, u64 queue_ea,
      memset(vm_base + (uint32_t)buffer_ea, 0, (size_t)size * depth);
  
      static int _n = 0;
@@ -4418,7 +4420,7 @@ index 688ff041..91d8c033 100644
          printf("[cellSpurs] _QueueInitialize(taskset=0x%08X q=0x%08X buf=0x%08X size=%u depth=%u dir=%u) -> BE line written\n",
                 (u32)taskset_ea, (u32)queue_ea, (u32)buffer_ea, size, depth, direction);
      return CELL_OK;
-@@ -2836,7 +3333,7 @@ s32 _cellSpursQueueInitialize(u64 spurs_ea, u64 taskset_ea, u64 queue_ea,
+@@ -2836,7 +3335,7 @@ s32 _cellSpursQueueInitialize(u64 spurs_ea, u64 taskset_ea, u64 queue_ea,
  s32 cellSpursQueueClear(u64 queue_ea)
  {
      static int _n = 0;
@@ -4427,7 +4429,7 @@ index 688ff041..91d8c033 100644
      return CELL_OK;
  }
  
-@@ -2867,7 +3364,7 @@ s32 cellSpursQueuePushBody(u64 queue_ea, u64 data_ea, u32 isBlocking)
+@@ -2867,7 +3366,7 @@ s32 cellSpursQueuePushBody(u64 queue_ea, u64 data_ea, u32 isBlocking)
                     (u32)queue_ea, (u32)data_ea, isBlocking);
          else if (_n == 8)
              printf("[cellSpurs] QueuePushBody further logs suppressed\n");
@@ -4436,7 +4438,7 @@ index 688ff041..91d8c033 100644
          return CELL_OK;
      }
  
-@@ -2941,7 +3438,7 @@ s32 cellSpursQueuePushBody(u64 queue_ea, u64 data_ea, u32 isBlocking)
+@@ -2941,7 +3440,7 @@ s32 cellSpursQueuePushBody(u64 queue_ea, u64 data_ea, u32 isBlocking)
          spu_taskset_signal_task(tsp, (uint32_t)woke);
      }
  
@@ -4445,7 +4447,7 @@ index 688ff041..91d8c033 100644
          printf("[cellSpurs] QueuePush#%d q=0x%08X slot=%u (cur=%u->%u) buf=0x%08X+0x%X "
                 "size=%u depth=%u waiters=%u woke=%d sync=%d/%d tail=%d->%d taskset=0x%08X\n",
                 _n, q, slot, cur, nxt, buf, slot * sz, sz, dep, waiters, woke, sync, nsync, tail, ntail, tsp);
-@@ -2952,83 +3449,143 @@ s32 cellSpursQueuePushBody(u64 queue_ea, u64 data_ea, u32 isBlocking)
+@@ -2952,83 +3451,143 @@ s32 cellSpursQueuePushBody(u64 queue_ea, u64 data_ea, u32 isBlocking)
   * Misc SPURS surface the title links (logged CELL_OK stubs).
   * =====================================================================*/
  
@@ -4635,7 +4637,7 @@ index 688ff041..91d8c033 100644
      return CELL_OK;
  }
  
-@@ -3119,7 +3676,7 @@ s32 cellSpursTaskGetReadOnlyAreaPattern(u64 pattern_ea, u64 elf_ea)
+@@ -3119,7 +3678,7 @@ s32 cellSpursTaskGetReadOnlyAreaPattern(u64 pattern_ea, u64 elf_ea)
      vm_write64((uint32_t)pattern_ea + 8, word[1]);
  
      static int _n = 0;
@@ -4644,7 +4646,7 @@ index 688ff041..91d8c033 100644
          printf("[cellSpurs] TaskGetReadOnlyAreaPattern(elf=0x%08X) -> %016llX %016llX\n",
                 (u32)elf_ea, (unsigned long long)word[0], (unsigned long long)word[1]);
      return CELL_OK;
-@@ -3146,7 +3703,7 @@ s32 cellSpursTaskGetContextSaveAreaSize(u64 size_out_ea, u64 pattern_ea)
+@@ -3146,7 +3705,7 @@ s32 cellSpursTaskGetContextSaveAreaSize(u64 size_out_ea, u64 pattern_ea)
      vm_write32((uint32_t)size_out_ea, size);
  
      static int _n = 0;
@@ -4653,7 +4655,7 @@ index 688ff041..91d8c033 100644
          printf("[cellSpurs] TaskGetContextSaveAreaSize(ls=%016llX %016llX, %u blocks) -> %u (0x%X)\n",
                 (unsigned long long)hi, (unsigned long long)lo, blocks, size, size);
      return CELL_OK;
-@@ -3159,7 +3716,7 @@ s32 cellSpursTasksetAttributeSetTasksetSize(CellSpursTasksetAttribute* attr, u32
+@@ -3159,7 +3718,7 @@ s32 cellSpursTasksetAttributeSetTasksetSize(CellSpursTasksetAttribute* attr, u32
  {
      if (!attr) return CELL_SPURS_TASK_ERROR_NULL_POINTER;
      static int _n = 0;
@@ -4662,7 +4664,7 @@ index 688ff041..91d8c033 100644
      return CELL_OK;
  }
  
-@@ -3169,42 +3726,61 @@ s32 cellSpursTasksetAttributeSetTasksetSize(CellSpursTasksetAttribute* attr, u32
+@@ -3169,42 +3728,61 @@ s32 cellSpursTasksetAttributeSetTasksetSize(CellSpursTasksetAttribute* attr, u32
  s32 cellSpursQueueAttachLv2EventQueue(u64 queue_ea)
  {
      static int _n = 0;
@@ -4754,7 +4756,7 @@ index 688ff041..91d8c033 100644
  s32 _cellSpursLFQueueInitialize(u64 owner_ea, u64 queue_ea, u64 buffer_ea,
                                  u32 size, u32 depth, u32 direction)
  {
-@@ -3213,30 +3789,17 @@ s32 _cellSpursLFQueueInitialize(u64 owner_ea, u64 queue_ea, u64 buffer_ea,
+@@ -3213,30 +3791,17 @@ s32 _cellSpursLFQueueInitialize(u64 owner_ea, u64 queue_ea, u64 buffer_ea,
  
      uint32_t q = (uint32_t)queue_ea;
      for (uint32_t o = 0; o < 128; o += 4) vm_write32(q + o, 0);
@@ -4792,7 +4794,7 @@ index 688ff041..91d8c033 100644
                 (u32)owner_ea, (u32)queue_ea, (u32)buffer_ea, size, depth, direction);
      return CELL_OK;
  }
-@@ -3244,6 +3807,213 @@ s32 _cellSpursLFQueueInitialize(u64 owner_ea, u64 queue_ea, u64 buffer_ea,
+@@ -3244,6 +3809,213 @@ s32 _cellSpursLFQueueInitialize(u64 owner_ea, u64 queue_ea, u64 buffer_ea,
  s32 cellSpursLFQueueAttachLv2EventQueue(u64 queue_ea)
  {
      static int _n = 0;
@@ -19521,10 +19523,10 @@ index cbec250a..b9d2c6b1 100644
  }
 diff --git a/libs/video/rsx_hitch.h b/libs/video/rsx_hitch.h
 new file mode 100644
-index 00000000..dce60acb
+index 00000000..88138726
 --- /dev/null
 +++ b/libs/video/rsx_hitch.h
-@@ -0,0 +1,328 @@
+@@ -0,0 +1,338 @@
 +/*
 + * ps3recomp - what each thread spent between two presents (PS3RECOMP_VK_HITCH)
 + *
@@ -19575,6 +19577,9 @@ index 00000000..dce60acb
 +#ifndef RSX_HITCH_H
 +#define RSX_HITCH_H
 +
++#ifdef _WIN32
++#include <windows.h>
++#endif
 +#include <stdint.h>
 +#include <stdlib.h>
 +#include <time.h>
@@ -19665,9 +19670,16 @@ index 00000000..dce60acb
 +
 +static inline uint64_t rsx_hs_now(void)
 +{
++#ifdef _WIN32
++    LARGE_INTEGER f, c;
++    QueryPerformanceFrequency(&f); QueryPerformanceCounter(&c);
++    return (uint64_t)(c.QuadPart / f.QuadPart) * 1000000000ull +
++           (uint64_t)(c.QuadPart % f.QuadPart) * 1000000000ull / (uint64_t)f.QuadPart;
++#else
 +    struct timespec ts;
 +    clock_gettime(CLOCK_MONOTONIC, &ts);
 +    return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
++#endif
 +}
 +
 +static inline void rsx_hs_add(int k, uint64_t ns)
@@ -23772,7 +23784,7 @@ index 00000000..62c91a26
 +#endif
 +#endif /* RSX_VP_EVAL_H */
 diff --git a/libs/video/rsx_vulkan_backend.c b/libs/video/rsx_vulkan_backend.c
-index e2687b79..ecb92457 100644
+index e2687b79..57ab4d9c 100644
 --- a/libs/video/rsx_vulkan_backend.c
 +++ b/libs/video/rsx_vulkan_backend.c
 @@ -38,18 +38,25 @@
@@ -31579,7 +31591,7 @@ index e2687b79..ecb92457 100644
      return P->variant[topo_idx];
  }
  
-@@ -2654,35 +9039,104 @@ static void vk_eng_bind_pipeline(void* user, u32 pipeline) { (void)user; s_e2.pi
+@@ -2654,35 +9039,110 @@ static void vk_eng_bind_pipeline(void* user, u32 pipeline) { (void)user; s_e2.pi
  
  static void vk_eng2_shutdown(void* user)
  {
@@ -31607,6 +31619,12 @@ index e2687b79..ecb92457 100644
 +    if (s_e2.set_layout) pvkDestroyDescriptorSetLayout(s_vk.device, s_e2.set_layout, NULL);
 +    free(s_e2.vs_cpu); free(s_e2.vs_last); free(s_e2.ps_cpu);
 +    vk_destroy_buffer(&s_vring.b); vk_destroy_buffer(&s_uring.b); vk_destroy_buffer(&s_sring.b);
++    vk_destroy_buffer(&s_rring.b);
++    /* The other frame's rings (vk_slot_swap exchanges them with the above). */
++    vk_destroy_buffer(&s_park.vring.b); vk_destroy_buffer(&s_park.uring.b);
++    vk_destroy_buffer(&s_park.sring.b); vk_destroy_buffer(&s_park.rring.b);
++    s_park.vring.off = s_park.uring.off = s_park.sring.off = s_park.rring.off = 0;
++    s_rring.off = 0;
 +    vk_destroy_buffer(&s_dev_scratch);
 +    vk_ga_destroy();
 +    s_vring.off = s_uring.off = s_sring.off = 0;
@@ -31694,7 +31712,7 @@ index e2687b79..ecb92457 100644
      s_e2.ps_bytes = bytes;
  }
  static void vk_eng_bind_textures(void* user, const u32* textures,
-@@ -2702,17 +9156,29 @@ static void vk_eng_bind_vertex_textures(void* user, const u32* textures,
+@@ -2702,17 +9162,29 @@ static void vk_eng_bind_vertex_textures(void* user, const u32* textures,
      (void)user; (void)textures; (void)samplers;
      if (mask && !(s_e2.warned & 8u)) { VK_LOG("engine: vertex textures not supported yet\n"); s_e2.warned |= 8u; }
  }
@@ -31726,7 +31744,7 @@ index e2687b79..ecb92457 100644
  
  static VkFramebuffer vk_eng_framebuffer(VkRenderPass rp, const u32* rt, u32 n, VkImageView dview,
                                          u32 dkey, u32 w, u32 h)
-@@ -2720,9 +9186,19 @@ static VkFramebuffer vk_eng_framebuffer(VkRenderPass rp, const u32* rt, u32 n, V
+@@ -2720,9 +9192,19 @@ static VkFramebuffer vk_eng_framebuffer(VkRenderPass rp, const u32* rt, u32 n, V
      u32 key[RSX_BE_MAX_COLOR_TARGETS + 1] = { 0 };
      for (u32 i = 0; i < n; i++) key[i] = rt[i];
      key[RSX_BE_MAX_COLOR_TARGETS] = dkey;
@@ -31749,7 +31767,7 @@ index e2687b79..ecb92457 100644
      VkImageView views[RSX_BE_MAX_COLOR_TARGETS + 1];
      for (u32 i = 0; i < n; i++) views[i] = s_eobj[rt[i]].im.view;
      views[n] = dview;
-@@ -2733,6 +9209,8 @@ static VkFramebuffer vk_eng_framebuffer(VkRenderPass rp, const u32* rt, u32 n, V
+@@ -2733,6 +9215,8 @@ static VkFramebuffer vk_eng_framebuffer(VkRenderPass rp, const u32* rt, u32 n, V
      if (pvkCreateFramebuffer(s_vk.device, &fci, NULL, &fb) != VK_SUCCESS) return VK_NULL_HANDLE;
      memcpy(s_e2.fb[s_e2.fb_count].key, key, sizeof key);
      s_e2.fb[s_e2.fb_count++].fb = fb;
@@ -31758,7 +31776,7 @@ index e2687b79..ecb92457 100644
      return fb;
  }
  
-@@ -2743,16 +9221,17 @@ static VkImageView vk_eng_scratch_depth(u32 w, u32 h)
+@@ -2743,16 +9227,17 @@ static VkImageView vk_eng_scratch_depth(u32 w, u32 h)
      if (s_e2.scratch_depth.view && s_e2.scratch_w >= w && s_e2.scratch_h >= h)
          return s_e2.scratch_depth.view;
      vk_eng_drop_framebuffers();
@@ -31780,7 +31798,7 @@ index e2687b79..ecb92457 100644
      s_e2.scratch_w = w; s_e2.scratch_h = h;
      return s_e2.scratch_depth.view;
  }
-@@ -2773,12 +9252,31 @@ static VkSampler vk_eng_sampler(const rsx_be_sampler_desc* d)
+@@ -2773,12 +9258,31 @@ static VkSampler vk_eng_sampler(const rsx_be_sampler_desc* d)
  {
      u32 lo, hi;
      memcpy(&lo, &d->min_lod, 4); memcpy(&hi, &d->max_lod, 4);
@@ -31815,7 +31833,7 @@ index e2687b79..ecb92457 100644
      float min_lod = d->min_lod, max_lod = d->mip_present ? d->max_lod : d->min_lod;
      if (max_lod < min_lod) max_lod = min_lod;
      VkSamplerCreateInfo sci = {
-@@ -2789,62 +9287,253 @@ static VkSampler vk_eng_sampler(const rsx_be_sampler_desc* d)
+@@ -2789,62 +9293,253 @@ static VkSampler vk_eng_sampler(const rsx_be_sampler_desc* d)
          .addressModeU = vk_gcm_wrap(d->wrap_s), .addressModeV = vk_gcm_wrap(d->wrap_t),
          .addressModeW = vk_gcm_wrap(d->wrap_r),
          .minLod = min_lod, .maxLod = max_lod,
@@ -32096,7 +32114,7 @@ index e2687b79..ecb92457 100644
  
      /* Targets: every member of a set is target A's size (engine contract). */
      const u32 n = s_eng_bound.nrt;
-@@ -2867,54 +9556,399 @@ static void vk_eng_draw(void* user, rsx_topology topology, const void* vertices,
+@@ -2867,54 +9562,399 @@ static void vk_eng_draw(void* user, rsx_topology topology, const void* vertices,
      VkFramebuffer fb = vk_eng_framebuffer(rp, s_eng_bound.rt, n, dview, dkey, w, h);
      if (!pipe || !rp || !fb) return;
  
@@ -32529,7 +32547,7 @@ index e2687b79..ecb92457 100644
  
  static const rsx_draw_backend s_vk_engine_backend = {
      .user                 = NULL,
-@@ -2922,30 +9956,63 @@ static const rsx_draw_backend s_vk_engine_backend = {
+@@ -2922,30 +9962,63 @@ static const rsx_draw_backend s_vk_engine_backend = {
      .shutdown             = vk_eng_shutdown,
      .submit_and_wait      = vk_eng_submit_and_wait,
      .texture_create       = vk_eng_texture_create,
@@ -32594,7 +32612,7 @@ index e2687b79..ecb92457 100644
  };
  
  static rsx_backend s_vulkan_backend = {
-@@ -3017,6 +10084,37 @@ static int vk_init_all(u32 width, u32 height, const char* title)
+@@ -3017,6 +10090,37 @@ static int vk_init_all(u32 width, u32 height, const char* title)
      pvkGetPhysicalDeviceFeatures(s_vk.phys, &have);
      want.textureCompressionBC = have.textureCompressionBC;
      s_vk.bc_ok = have.textureCompressionBC ? 1 : 0;
@@ -32632,7 +32650,7 @@ index e2687b79..ecb92457 100644
      VkDeviceCreateInfo dci = { .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
                                 .queueCreateInfoCount = 1, .pQueueCreateInfos = &qci,
                                 .enabledExtensionCount = s_vk.windowed ? 1u : 0u,
-@@ -3024,6 +10122,7 @@ static int vk_init_all(u32 width, u32 height, const char* title)
+@@ -3024,6 +10128,7 @@ static int vk_init_all(u32 width, u32 height, const char* title)
                                 .pEnabledFeatures = &want };
      VK_CHECK(pvkCreateDevice(s_vk.phys, &dci, NULL, &s_vk.device), "vkCreateDevice");
      if (vk_load_device_functions()) return -1;
@@ -32640,7 +32658,7 @@ index e2687b79..ecb92457 100644
      if (s_vk.windowed && vk_load_wsi_device_functions())
          vk_window_drop("the driver has no swapchain functions");
      pvkGetDeviceQueue(s_vk.device, s_vk.queue_family, 0, &s_vk.queue);
-@@ -3036,19 +10135,27 @@ static int vk_init_all(u32 width, u32 height, const char* title)
+@@ -3036,19 +10141,27 @@ static int vk_init_all(u32 width, u32 height, const char* title)
                                          .commandPool = s_vk.pool,
                                          .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
                                          .commandBufferCount = 1 };
@@ -32673,7 +32691,7 @@ index e2687b79..ecb92457 100644
      if (vk_create_render_pass()) return -1;
      if (vk_create_pipeline_objects()) return -1;
      if (vk_guest_init()) {
-@@ -3063,18 +10170,24 @@ static int vk_init_all(u32 width, u32 height, const char* title)
+@@ -3063,18 +10176,24 @@ static int vk_init_all(u32 width, u32 height, const char* title)
       * null backend makes the same choice). */
      if (vk_begin()) return -1;
      vk_barrier_image(s_vk.color.img, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED);
@@ -32700,7 +32718,7 @@ index e2687b79..ecb92457 100644
              vk_create_swapchain())
              vk_window_drop("the swapchain could not be created");
      }
-@@ -3099,10 +10212,16 @@ int rsx_vulkan_backend_init(u32 width, u32 height, const char* title)
+@@ -3099,10 +10218,16 @@ int rsx_vulkan_backend_init(u32 width, u32 height, const char* title)
       * Either way PS3RECOMP_RSX_ENGINE=dispatch|vtable overrides. */
      rsx_draw_engine_set_backend(&s_vk_engine_backend);
      rsx_draw_engine_set_default(s_g.on ? 1 : 0);
@@ -32719,7 +32737,7 @@ index e2687b79..ecb92457 100644
      VK_LOG("%s path\n", s_vk.eng_active ? "register-file draw engine" : "vtable");
      VK_LOG("offscreen target %ux%u ready, depth format %d (%s)\n",
             s_vk.width, s_vk.height, (int)s_vk.depth_format, title ? title : "");
-@@ -3126,7 +10245,9 @@ void rsx_vulkan_backend_shutdown(void)
+@@ -3126,7 +10251,9 @@ void rsx_vulkan_backend_shutdown(void)
      if (s_vk.windowed || s_vk.window) vk_window_drop(NULL);
      if (s_vk.device) {
          if (pvkDeviceWaitIdle) pvkDeviceWaitIdle(s_vk.device);
@@ -32729,7 +32747,7 @@ index e2687b79..ecb92457 100644
          for (int i = 0; i < VK_PIPELINE_SLOTS; i++)
              if (s_vk.pipelines[i]) pvkDestroyPipeline(s_vk.device, s_vk.pipelines[i], NULL);
          if (s_vk.pipe_layout) pvkDestroyPipelineLayout(s_vk.device, s_vk.pipe_layout, NULL);
-@@ -3143,9 +10264,22 @@ void rsx_vulkan_backend_shutdown(void)
+@@ -3143,9 +10270,22 @@ void rsx_vulkan_backend_shutdown(void)
          vk_destroy_image(&s_vk.dummy);
          vk_destroy_image(&s_vk.depth);
          vk_destroy_image(&s_vk.color);
@@ -32752,7 +32770,7 @@ index e2687b79..ecb92457 100644
          if (s_vk.pool)  pvkDestroyCommandPool(s_vk.device, s_vk.pool, NULL);
          pvkDestroyDevice(s_vk.device, NULL);
      }
-@@ -3155,20 +10289,176 @@ void rsx_vulkan_backend_shutdown(void)
+@@ -3155,20 +10295,176 @@ void rsx_vulkan_backend_shutdown(void)
      memset(&s_vk, 0, sizeof s_vk);
  }
  
@@ -32929,7 +32947,7 @@ index e2687b79..ecb92457 100644
      if (s_vk.eng_active) rsx_draw_engine_present();
      else                 vk_cb_present(&s_vk, 0);
  }
-@@ -3186,4 +10476,4 @@ u32 rsx_vulkan_backend_guest_draws(void)
+@@ -3186,4 +10482,4 @@ u32 rsx_vulkan_backend_guest_draws(void)
      return s_vk.eng_active ? rsx_draw_engine_guest_draws() : s_g.last_draws;
  }
  
@@ -60955,7 +60973,7 @@ index d9f86bb4..c610dad5 100644
              ctx->pc = pc;
              __attribute__((musttail)) return fn(ctx);
 diff --git a/runtime/spu/spu_dma.h b/runtime/spu/spu_dma.h
-index 90f3221e..d0e926a1 100644
+index 90f3221e..e56f1a4d 100644
 --- a/runtime/spu/spu_dma.h
 +++ b/runtime/spu/spu_dma.h
 @@ -16,12 +16,16 @@
@@ -61015,7 +61033,7 @@ index 90f3221e..d0e926a1 100644
 +{
 +    static const uint8_t sig[16] = { 0,0,0,0, 0x05,0x00,0x02,0xD0, 0xBF,0x80,0,0, 0x3F,0x80,0,0 };
 +    /* 0 unread; else 1 + whether there is anything to do. */
-+    static _Atomic int s_state;
++    static int s_state;
 +    static uint32_t s_w, s_h;
 +    static float s_fx, s_fy;
 +    int st = __atomic_load_n(&s_state, __ATOMIC_ACQUIRE);
@@ -61083,7 +61101,7 @@ index 90f3221e..d0e926a1 100644
 +
 +static inline int mfc_fast_ok(void)
 +{
-+    static _Atomic int s_env = -1;
++    static int s_env = -1;
 +    int env = __atomic_load_n(&s_env, __ATOMIC_RELAXED);
 +    if (__builtin_expect(env < 0, 0)) { env = mfc_diag_env(); __atomic_store_n(&s_env, env, __ATOMIC_RELAXED); }
 +    extern int g_spu_param_dump, g_spu_lbt, g_ps3_tl;
@@ -61845,7 +61863,7 @@ index 90f3221e..d0e926a1 100644
 +    /* A plain GET or PUT with no diagnostic on: what the path below does for
 +     * one, without testing each diagnostic. Lists, the policy modules (whose
 +     * first commands are logged) and the WWS batch fetch (counted) go below. */
-+    { static _Atomic int s_env = -1;
++    { static int s_env = -1;
 +      int env = __atomic_load_n(&s_env, __ATOMIC_RELAXED);
 +      if (__builtin_expect(env < 0, 0)) { env = mfc_submit_diag_env(); __atomic_store_n(&s_env, env, __ATOMIC_RELAXED); }
 +      if (__builtin_expect(!env && !spu->policy_mode && !mfc_is_list(cmd) && mfc_fast_ok(), 1) &&
