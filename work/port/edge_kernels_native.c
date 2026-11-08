@@ -1950,11 +1950,11 @@ static int s_init = -1;
 static const char* s_cap_dir;           /* PS3RECOMP_EDGE_CAPTURE=dir[,count[,every]] */
 static unsigned s_cap_max = 32, s_cap_every = 997;
 static _Thread_local int t_bypass;
-static inline uint64_t now_ns(void)
-{
-    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
-}
+/* The SPU threads' TSC clock (runtime/spu/spu_clock.h): the stats tick reads
+ * it on every call, and clock_gettime inside busy job code is ~170 cycles.
+ * SPU_FAST_CLOCK=0 makes it clock_gettime again. */
+uint64_t spu_clock_ns(void);
+static inline uint64_t now_ns(void) { return spu_clock_ns(); }
 static const char* mode_name(int m) { return m == 2 ? "compare with the lifted code" : m ? "on" : "off"; }
 static void edge_init(void)
 {

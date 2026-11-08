@@ -844,16 +844,15 @@ static unsigned s_reason[16];
  * printed with the 10 s stats line. Off: nothing is counted. */
 static int s_ophist = -1;
 static unsigned s_ops[256];
-static inline uint64_t now_ns(void)
-{
-    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
-}
+/* The SPU threads' TSC clock (runtime/spu/spu_clock.h): the stats tick reads
+ * it on every call, and clock_gettime inside busy job code is ~170 cycles.
+ * SPU_FAST_CLOCK=0 makes it clock_gettime again. */
+uint64_t spu_clock_ns(void);
+static inline uint64_t now_ns(void) { return spu_clock_ns(); }
 static void stats(void)
 {
     static uint64_t next;
-    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
-    const uint64_t now = (uint64_t)ts.tv_sec;
+    const uint64_t now = now_ns() / 1000000000ull;
     uint64_t n = __atomic_load_n(&next, __ATOMIC_RELAXED);
     if (now < n || !__atomic_compare_exchange_n(&next, &n, now + 10, 0, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) return;
     if (!n) return;
