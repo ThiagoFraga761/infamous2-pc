@@ -250,6 +250,28 @@ int main()
         CHECK(getenv("PS3RECOMP_KBM_MAP") && !strcmp(getenv("PS3RECOMP_KBM_MAP"), "G=R2"));
         unsetenv("PS3RECOMP_KBM"); unsetenv("PS3RECOMP_KBM_SENS");
         unsetenv("PS3RECOMP_KBM_INVERT_Y"); unsetenv("PS3RECOMP_KBM_DEADZONE"); unsetenv("PS3RECOMP_KBM_MAP");
+        /* The longest map the menu can write comes back whole, and the
+         * environment's map is shown but not saved over the file's. */
+        port_settings d; port_settings_defaults(&d);
+        port_settings_from_env(&d);
+        std::string lng;
+        while (lng.size() + 12 < sizeof d.kbm_map) lng += "Mouse4=NONE ";
+        snprintf(d.kbm_map, sizeof d.kbm_map, "%s", lng.c_str());
+        CHECK(port_settings_save(&d, p6.c_str()) == 0);
+        port_settings e;
+        CHECK(port_settings_load(&e, p6.c_str()) == 1);
+        lng.erase(lng.find_last_not_of(' ') + 1);
+        CHECK(lng == e.kbm_map);
+        snprintf(e.kbm_map, sizeof e.kbm_map, "G=R2");
+        CHECK(port_settings_save(&e, p6.c_str()) == 0);
+        setenv("PS3RECOMP_KBM_MAP", "H=L2", 1);
+        port_settings f;
+        CHECK(port_settings_load(&f, p6.c_str()) == 1 && !strcmp(f.kbm_map, "G=R2"));
+        CHECK((port_settings_from_env(&f) & PORT_PIN_KBM_MAP) && !strcmp(f.kbm_map, "H=L2"));
+        CHECK(port_settings_save(&f, p6.c_str()) == 0);
+        CHECK(port_settings_load(&e, p6.c_str()) == 1 && !strcmp(e.kbm_map, "G=R2"));
+        unsetenv("PS3RECOMP_KBM_MAP");
+        port_settings_from_env(&f);
         remove(p6.c_str());
     }
     /* field of view: clamped in the file, the scale's percent from the

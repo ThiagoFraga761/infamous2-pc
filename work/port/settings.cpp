@@ -128,7 +128,7 @@ int port_settings_load(port_settings* s, const char* path)
     FILE* f = path ? fopen(path, "r") : nullptr;
     if (!f) return 0;
     std::string section;
-    char line[512];
+    char line[2048];            /* longer than [keyboard] map and its comment */
     bool first = true;
     while (fgets(line, sizeof line, f)) {
         std::string l = trim(line);
@@ -212,6 +212,7 @@ int port_settings_save(const port_settings* in, const char* path)
     if (s_pinned & PORT_PIN_KBM_SENS)      out.kbm_sens = s_file.kbm_sens;
     if (s_pinned & PORT_PIN_KBM_INVERT_Y)  out.kbm_invert_y = s_file.kbm_invert_y;
     if (s_pinned & PORT_PIN_KBM_DEADZONE)  out.kbm_deadzone = s_file.kbm_deadzone;
+    if (s_pinned & PORT_PIN_KBM_MAP)       memcpy(out.kbm_map, s_file.kbm_map, sizeof out.kbm_map);
     std::string dir = path;
     const size_t slash = dir.find_last_of("/\\");
     if (slash != std::string::npos) {
@@ -353,6 +354,7 @@ unsigned port_settings_from_env(port_settings* s)
     if ((v = getenv("PS3RECOMP_KBM_SENS")))      { set_hundredths(&s->kbm_sens, v, 10, 500); pin |= PORT_PIN_KBM_SENS; }
     if ((v = getenv("PS3RECOMP_KBM_INVERT_Y")))  { s->kbm_invert_y = env_on(v); pin |= PORT_PIN_KBM_INVERT_Y; }
     if ((v = getenv("PS3RECOMP_KBM_DEADZONE")))  { set_hundredths(&s->kbm_deadzone, v, 0, 60); pin |= PORT_PIN_KBM_DEADZONE; }
+    if ((v = getenv("PS3RECOMP_KBM_MAP")))       { snprintf(s->kbm_map, sizeof s->kbm_map, "%s", v); pin |= PORT_PIN_KBM_MAP; }
     s_pinned = pin;
     return pin;
 }

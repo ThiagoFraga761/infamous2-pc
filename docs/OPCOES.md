@@ -162,7 +162,7 @@ sozinho, e um valor explícito ganha do pacote (`PS3_MAIN_WAITS=1 PS3_JL_WAIT=0`
 | `PS3RECOMP_KBM_SENS` | `[keyboard] sensitivity` | `1.0` | Sensibilidade do mouse (0,10–5,00 no menu) |
 | `PS3RECOMP_KBM_INVERT_Y` | `[keyboard] invert_y` | `0` | Inverte o eixo vertical |
 | `PS3RECOMP_KBM_DEADZONE` | `[keyboard] deadzone` | `0.20` | "Início do giro": deflexão do analógico no menor movimento (0–0,60) |
-| `PS3RECOMP_KBM_MAP` | `[keyboard] map` | — | `Tecla=AÇÃO ...` por cima do mapa padrão; `NONE` desliga a tecla. Ex.: `F=SQUARE Q=NONE` |
+| `PS3RECOMP_KBM_MAP` | `[keyboard] map` | — | `Tecla=AÇÃO ...` por cima do mapa padrão; `NONE` desliga a tecla. Ex.: `F=SQUARE Q=NONE`. O menu (F1 > Teclado e mouse) grava aqui, ao vivo; com a variável definida, a troca pelo menu fica bloqueada |
 | `PS3RECOMP_KBM_CAPTURE` | — | primeiro uso | `focus` captura o mouse assim que a janela ganha foco |
 | `PS3RECOMP_KBM_SENS_Y`, `PS3RECOMP_KBM_CURVE`, `PS3RECOMP_KBM_WINDOW_MS` | — | `1.0`, `1`, `25` | Multiplicador da sensibilidade vertical, curva (1 = linear) e janela de suavização do mouse (ms) |
 | `PS3_SYS_LANG` | (derivado de `text`) | `pt` | Idioma do console informado ao jogo. `pt` é o caminho para o PT-BR (veja o README, Idioma) |

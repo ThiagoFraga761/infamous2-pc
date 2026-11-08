@@ -1151,10 +1151,10 @@ index f2b4c119..778ec007 100644
  #endif
  
 diff --git a/libs/input/cellPad.h b/libs/input/cellPad.h
-index 89c58ab6..88ae7c2d 100644
+index 89c58ab6..434fdf58 100644
 --- a/libs/input/cellPad.h
 +++ b/libs/input/cellPad.h
-@@ -200,6 +200,20 @@ s32 cellPadClearBuf(u32 port_no);
+@@ -200,6 +200,23 @@ s32 cellPadClearBuf(u32 port_no);
  /* Internal: call once per frame to update pad state from host input */
  void cellPad_poll(void);
  
@@ -1171,16 +1171,19 @@ index 89c58ab6..88ae7c2d 100644
 +void cellPad_kbm_set_deadzone(float d);
 +int  cellPad_kbm_active(void);
 +const char* cellPad_kbm_binding(int i, char* key, int keycap);
++int  cellPad_kbm_set_map(const char* spec);
++int  cellPad_kbm_get_map(char* out, int cap);
++int  cellPad_kbm_code_name(int code, char* out, int cap);
 +
  #ifdef __cplusplus
  }
  #endif
 diff --git a/libs/input/pad_kbm.h b/libs/input/pad_kbm.h
 new file mode 100644
-index 00000000..7e016766
+index 00000000..100e8ebf
 --- /dev/null
 +++ b/libs/input/pad_kbm.h
-@@ -0,0 +1,483 @@
+@@ -0,0 +1,525 @@
 +/*
 + * ps3recomp - keyboard and mouse as the port-0 pad.
 + *
@@ -1314,6 +1317,7 @@ index 00000000..7e016766
 +static int      s_kbm_on = 1, s_kbm_invy, s_kbm_window_ms = 25, s_kbm_log;
 +static float    s_kbm_sens = 1.0f, s_kbm_sens_y = 1.0f, s_kbm_dz = 0.20f, s_kbm_curve = 1.0f;
 +static uint8_t  s_kbm_bind[KBM_CODES];
++static uint8_t  s_kbm_default[KBM_CODES];   /* k_kbm_default_map, what a saved map is relative to */
 +static uint16_t s_kbm_list[KBM_CODES];   /* the bound codes, in code order */
 +static int      s_kbm_nlist;
 +static struct { uint64_t ms; int dx, dy; } s_kbm_ring[KBM_RING];
@@ -1440,6 +1444,7 @@ index 00000000..7e016766
 +    s_kbm_window_ms = (int)kbm_env_float("PS3RECOMP_KBM_WINDOW_MS", 25.0f, 4.0f, (float)(KBM_RING - 4));
 +    memset(s_kbm_bind, 0, sizeof s_kbm_bind);
 +    kbm_parse_map(k_kbm_default_map, 1);
++    memcpy(s_kbm_default, s_kbm_bind, sizeof s_kbm_default);
 +    e = getenv("PS3RECOMP_KBM_MAP");
 +    if (e && *e) kbm_parse_map(e, 1);
 +    fprintf(stderr, "[kbm] keyboard and mouse %s (sensitivity %.2f, invert Y %d, deadzone %.2f, "
@@ -1644,6 +1649,46 @@ index 00000000..7e016766
 +    return kbm_action_name(s_kbm_bind[c]);
 +}
 +
++/* The whole layout from the menu, live: the default plus `spec` (the format
++ * of PS3RECOMP_KBM_MAP; NULL or "" is the default). Returns the entries it
++ * could not read. */
++int cellPad_kbm_set_map(const char* spec)
++{
++    kbm_init();
++    memcpy(s_kbm_bind, s_kbm_default, sizeof s_kbm_bind);
++    return kbm_parse_map(spec ? spec : "", 1);
++}
++
++/* The layout as a spec for cellPad_kbm_set_map: only what differs from the
++ * default, in code order. Returns its length, or -1 (and "") when it does not
++ * fit in `cap`: a map cut in half would be a different layout. */
++int cellPad_kbm_get_map(char* out, int cap)
++{
++    kbm_init();
++    if (!out || cap <= 0) return -1;
++    int n = 0;
++    out[0] = 0;
++    for (int c = 0; c < KBM_CODES; c++) {
++        if (s_kbm_bind[c] == s_kbm_default[c]) continue;
++        char key[16];
++        kbm_code_name(c, key, sizeof key);
++        const int w = snprintf(out + n, (size_t)(cap - n), "%s%s=%s", n ? " " : "", key,
++                               kbm_action_name(s_kbm_bind[c]));
++        if (w < 0 || w >= cap - n) { out[0] = 0; return -1; }
++        n += w;
++    }
++    return n;
++}
++
++/* A code's name into `out`. Returns 1 when a map can use that name, 0 for a
++ * key without one (a binding for it could not be saved). */
++int cellPad_kbm_code_name(int code, char* out, int cap)
++{
++    if (code < 0 || code >= KBM_CODES || !out || cap <= 0) return 0;
++    kbm_code_name(code, out, (size_t)cap);
++    return kbm_code_from_name(out, strlen(out)) == code;
++}
++
 +/* ---- the game's threads ---------------------------------------------------- */
 +
 +/* The keyboard-and-mouse pad, when the game has the input. */
@@ -1666,10 +1711,10 @@ index 00000000..7e016766
 +#endif
 diff --git a/libs/input/tests/test_pad_kbm.c b/libs/input/tests/test_pad_kbm.c
 new file mode 100644
-index 00000000..efc5ab88
+index 00000000..30b1d67b
 --- /dev/null
 +++ b/libs/input/tests/test_pad_kbm.c
-@@ -0,0 +1,226 @@
+@@ -0,0 +1,256 @@
 +/* Host test for libs/input/pad_kbm.h: synthetic key and mouse states in,
 + * the published pad word out. No window, no game.
 + *   gcc -O1 -Wall -Wextra -I/usr/include/SDL2 -Ilibs/input libs/input/tests/test_pad_kbm.c -lm -o /tmp/test_pad_kbm */
@@ -1885,6 +1930,36 @@ index 00000000..efc5ab88
 +      for (const char* a; (a = cellPad_kbm_binding(n, key, sizeof key)); n++)
 +          if (!strcmp(key, "Space") && !strcmp(a, "CROSS")) saw_space = 1;
 +      CHECK(n == s_kbm_nlist && saw_space); }
++
++    /* The menu's rebinding: the whole map replaced live, and read back as
++     * only what differs from the default. */
++    { char m[256], name[16];
++      CHECK(cellPad_kbm_set_map("") == 0);
++      CHECK(cellPad_kbm_get_map(m, sizeof m) == 0 && !m[0]);
++      CHECK(cellPad_kbm_set_map("G=CROSS Q=NONE, WheelUp=L1 bogus=CROSS") == 1);
++      CHECK(cellPad_kbm_get_map(m, sizeof m) > 0);
++      CHECK(!strcmp(m, "G=CROSS Q=NONE WheelUp=L1"));
++      memset(K, 0, sizeof K);
++      K[SDL_SCANCODE_G] = 1; T += 1000; feed(0, 0, 0, 0, 1);
++      CHECK(took(&b, &lx, &ly, &rx, &ry) && b == (1u << 14));   /* G is CROSS now */
++      K[SDL_SCANCODE_G] = 0; K[SDL_SCANCODE_Q] = 1; T += 1000; feed(0, 0, 0, 0, 1);
++      CHECK(took(&b, &lx, &ly, &rx, &ry) && b == 0);            /* Q is off */
++      K[SDL_SCANCODE_Q] = 0;
++      /* What it wrote it can read: the map survives a save. */
++      char m2[256]; snprintf(m2, sizeof m2, "%s", m);
++      CHECK(cellPad_kbm_set_map(m2) == 0);
++      CHECK(cellPad_kbm_get_map(m, sizeof m) > 0 && !strcmp(m, m2));
++      /* Too small: nothing rather than half a layout. */
++      CHECK(cellPad_kbm_get_map(m, 5) == -1 && !m[0]);
++      CHECK(cellPad_kbm_set_map(NULL) == 0);
++      CHECK(cellPad_kbm_get_map(m, sizeof m) == 0);
++      /* Named keys round trip; one without a name cannot be saved. */
++      CHECK(cellPad_kbm_code_name(SDL_SCANCODE_F5, name, sizeof name) && !strcmp(name, "F5"));
++      CHECK(cellPad_kbm_code_name(SDL_SCANCODE_KP_0, name, sizeof name) && !strcmp(name, "KP0"));
++      CHECK(cellPad_kbm_code_name(KBM_MOUSE_BASE + 3, name, sizeof name) && !strcmp(name, "Mouse4"));
++      CHECK(cellPad_kbm_code_name(KBM_WHEEL_DOWN, name, sizeof name) && !strcmp(name, "WheelDown"));
++      CHECK(!cellPad_kbm_code_name(SDL_SCANCODE_PRINTSCREEN, name, sizeof name));
++      CHECK(!cellPad_kbm_code_name(KBM_CODES, name, sizeof name)); }
 +
 +    /* Off: nothing live, so cellPad (and the Windows key fallback) behave as
 +     * before the feature. */
@@ -21580,10 +21655,10 @@ index ce99e681..9f43916f 100644
  #endif
 diff --git a/libs/video/rsx_ui.cpp b/libs/video/rsx_ui.cpp
 new file mode 100644
-index 00000000..39fe26fe
+index 00000000..a3bf27b4
 --- /dev/null
 +++ b/libs/video/rsx_ui.cpp
-@@ -0,0 +1,633 @@
+@@ -0,0 +1,669 @@
 +/*
 + * ps3recomp - a user interface over the game's window (Dear ImGui, Vulkan).
 + * See rsx_ui.h for the threads, rsx_ui_vk.h for the backend's side.
@@ -21627,6 +21702,7 @@ index 00000000..39fe26fe
 +    void (*draw)(void*) = nullptr;
 +    void* user = nullptr;
 +    std::atomic<int> menu{0}, visible{0}, modal{0};
++    std::atomic<int> capture{0}, captured{-1};   /* rsx_ui_capture_input */
 +    std::atomic<bool> clear_input{false};  /* drop what ImGui held while it was hidden */
 +    std::atomic<bool> reap{false};    /* the context outlived a teardown on another thread */
 +    std::thread::id owner;            /* the window's thread: SDL and the context live there */
@@ -21902,6 +21978,14 @@ index 00000000..39fe26fe
 +    g_pad_ui_capture = open ? 1 : 0;
 +}
 +
++void rsx_ui_capture_input(int on)
++{
++    U.captured = -1;
++    U.capture = on ? 1 : 0;
++}
++
++int rsx_ui_captured_input(void) { return U.captured.exchange(-1); }
++
 +void rsx_ui_set_visible(int visible)
 +{
 +    if (visible && !U.visible) U.clear_input = true;
@@ -21964,6 +22048,33 @@ index 00000000..39fe26fe
 +        ImGui_ImplSDL2_ProcessEvent(e);
 +        return 0;
 +    }
++    /* The menu is waiting for a key to bind. Presses are the answer, even
++     * F1 and Escape, and ImGui must not act on them; it still sees the
++     * releases, or what was held when this began would stay down in it. */
++    if (U.capture) {
++        int code = -1;
++        switch (e->type) {
++        case SDL_KEYDOWN:
++            if (!e->key.repeat) code = (int)e->key.keysym.scancode;
++            break;
++        case SDL_MOUSEBUTTONDOWN:
++            if (e->button.button >= 1 && e->button.button <= 5) code = 511 + e->button.button;
++            break;
++        case SDL_MOUSEWHEEL:
++            if (e->wheel.y) code = e->wheel.y > 0 ? 517 : 518;
++            break;
++        case SDL_KEYUP: case SDL_MOUSEBUTTONUP:
++            ImGui_ImplSDL2_ProcessEvent(e);
++            return 1;
++        default:
++            break;
++        }
++        if (e->type == SDL_KEYDOWN || e->type == SDL_MOUSEBUTTONDOWN || e->type == SDL_MOUSEWHEEL) {
++            int none = -1;
++            if (code >= 0) U.captured.compare_exchange_strong(none, code);
++            return 1;
++        }
++    }
 +    /* A screen that owns the window (the start screen) takes every event:
 +     * Escape would otherwise quit the game. */
 +    if (U.modal) {
@@ -22003,7 +22114,7 @@ index 00000000..39fe26fe
 +    /* Under SDL's joystick lock: cellPad opens and polls the same pads from
 +     * the game's threads, and the device list behind SDL_NumJoysticks is
 +     * rebuilt on each call (two threads at once corrupted the heap). */
-+    if (!U.modal) { SDL_GameController* gc = nullptr;
++    if (!U.modal && !U.capture) { SDL_GameController* gc = nullptr;
 +      SDL_LockJoysticks();
 +      for (int i = 0; i < SDL_NumJoysticks() && !gc; i++)
 +          if (SDL_IsGameController(i)) gc = SDL_GameControllerFromInstanceID(SDL_JoystickGetDeviceInstanceID(i));
@@ -22219,10 +22330,10 @@ index 00000000..39fe26fe
 +} /* extern "C" */
 diff --git a/libs/video/rsx_ui.h b/libs/video/rsx_ui.h
 new file mode 100644
-index 00000000..a39d6d20
+index 00000000..8ed681f4
 --- /dev/null
 +++ b/libs/video/rsx_ui.h
-@@ -0,0 +1,79 @@
+@@ -0,0 +1,87 @@
 +/*
 + * ps3recomp - a user interface over the game's window (Dear ImGui, Vulkan)
 + *
@@ -22270,6 +22381,14 @@ index 00000000..a39d6d20
 +/* The menu is open or a modal screen is up: the keyboard and mouse belong to
 + * the UI, not the game, and the mouse is not captured. */
 +int  rsx_ui_wants_input(void);
++
++/* The menu is waiting for a key to bind. While on, every press goes here and
++ * nowhere else (no F1, no Escape, no click on a widget); releases still reach
++ * ImGui so that it holds nothing down afterwards. rsx_ui_captured_input takes
++ * the first press since the last take, or -1: an SDL scancode, 512..516 for
++ * SDL's mouse buttons 1..5, 517 and 518 for the wheel (libs/input/pad_kbm.h). */
++void rsx_ui_capture_input(int on);
++int  rsx_ui_captured_input(void);
 +
 +/* The monitor the window is on (SDL's index). */
 +int  rsx_ui_display_index(void);

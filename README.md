@@ -278,8 +278,8 @@ clique ou tecla; Alt+Tab e F1 o soltam.
 | **Enter** ou **P** / **Tab** | Start / Select |
 | **Setas** ou **1 2 3 4** | direcional |
 
-Para trocar teclas: `[keyboard] map` no `user/settings.ini`, no formato
-`Tecla=BOTÃO` (por exemplo `F=SQUARE Q=NONE`). As ações `WALK` (andar devagar)
+Para trocar teclas: F1 > Teclado e mouse, ou `[keyboard] map` no
+`user/settings.ini`, no formato `Tecla=BOTÃO` (por exemplo `F=SQUARE Q=NONE`). As ações `WALK` (andar devagar)
 e a roda do mouse (`WheelUp`, `WheelDown`) existem, mas não têm tecla no mapa
 padrão.
 
@@ -618,7 +618,8 @@ work/play.sh --title    # straight to inFAMOUS 2's new-game screen
     **E** triangle.
   - **Q**/**R**: R2/L2. **Ctrl**/**V** or **middle button**: L3/R3.
   - **Enter**/**P** START, **Tab** SELECT, **arrows** or **1-4** the D-pad.
-  - `[keyboard] map` in `settings.ini` rebinds keys (`F=SQUARE Q=NONE`).
+  - F1 > Teclado e mouse rebinds keys, or `[keyboard] map` in `settings.ini`
+    (`F=SQUARE Q=NONE`).
   - **F11**/**Alt+Enter** toggles full screen.
 
 ## Language
