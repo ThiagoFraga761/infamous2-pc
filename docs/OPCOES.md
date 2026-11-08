@@ -329,9 +329,17 @@ só. Na missão pesada de 07/11, um frame de 157 ms criou 727 texturas e mandou
 | `PS3RECOMP_ENG_TEXMISS_HASH` | `0` com `PS3RECOMP_WTRACK=1` | `1` volta a calcular o hash de toda textura nova. Desligado, a textura nova só arma o rastreamento de escrita; o hash é feito na primeira vez que o rastreamento acusa uma escrita. Com `WTRACK` em `0` ou `2`, o hash é sempre feito |
 | `PS3RECOMP_VK_TEXSUB_MB` | `512` | `0` dá uma alocação própria (`vkAllocateMemory`) a cada textura. Ligado, as texturas de até 1 MB ficam em blocos de 16 MB, até esse total em MB |
 | `PS3RECOMP_VK_UPLOAD_COALESCE` | `1` | `0` põe uma barreira antes de cada upload. Ligado, os níveis seguidos de uma mesma textura dividem a barreira do primeiro |
+| `PS3RECOMP_VK_UPLOAD_MERGE` | `1` | `0` manda cada nível numa chamada própria, como antes. Ligado, a thread de gravação junta os uploads seguidos de uma mesma textura numa cópia só (uma reserva de staging, no máximo uma barreira, um `vkCmdCopyBufferToImage` com uma região por nível). Precisa de `PS3RECOMP_VK_UPLOAD_COALESCE`; com ele em `0`, cada nível vai sozinho. No `[vk hitch]`, o `tex_upload` passa a contar chamadas (uma por textura) em vez de níveis |
 
 Com `PS3RECOMP_VK_STATS=1`, o fim da sessão mostra uma linha
 `texture blocks: ...` com quantos slots e blocos foram usados.
+
+Com `PS3RECOMP_VK_HITCH` ligado, um frame em que as texturas novas causaram
+1024 page faults ou mais na thread do RSX gera a linha
+`[eng] frame N: M texture misses over X MB took F page faults on the RSX thread`.
+Ela separa os faults das texturas dos do resto da thread (a linha
+`[vk hitch]` só dá o total). São duas chamadas a `getrusage` por textura nova,
+e só com o hitch ligado.
 
 ### Lift do PPU: VMX em um store de 16 bytes e cache por site de `bctrl`
 
@@ -412,7 +420,10 @@ checked against the code on 2026-11-07.
   first. Texture streaming (tex-stream): `PS3RECOMP_BQ_TEXBUILD` is now on in
   the port too, and `PS3RECOMP_ENG_TEXMAP`, `PS3RECOMP_VK_TEXSUB_MB` (512),
   `PS3RECOMP_VK_UPLOAD_COALESCE` are on, `PS3RECOMP_ENG_TEXMISS_HASH` off;
-  `0` (`1` for the last) restores the old path.
+  `0` (`1` for the last) restores the old path. `PS3RECOMP_VK_UPLOAD_MERGE`
+  (on) sends a texture's queued levels as one copy; `0` sends one per level.
+  With the hitch line on, an `[eng] ... page faults on the RSX thread` line
+  says how many of that thread's faults came from new textures.
 - **PPU lift** (end of section 6, needs a relift): VMX moves, splats, merges
   and bitwise ops now write the register with one 16-byte store, and every
   `bctrl` has a per-site inline cache. `PS3_ICALL_IC=0` turns the cache off at
