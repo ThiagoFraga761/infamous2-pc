@@ -180,6 +180,12 @@ Ligados pelo `work/play.sh`:
 | `PS3RECOMP_FTLOG` | `1` | A cada 10 s, a distribuição dos tempos de frame: mediana, p99, pior frame e 1% low |
 | `PS3RECOMP_VK_HITCH` | 2000 ÷ limite ms, no mínimo 25 | Todo frame mais longo que isso gera uma linha `[vk hitch]` com as causas (builds de pipeline, esperas de GPU, criação de textura, o que cada thread esperou, run-queue, page faults). `-1` desliga |
 | `PS3RECOMP_VK_HITCH_SCHED` | `1` | `0` mantém a linha `[vk hitch]`, mas sem ler `/proc` |
+| `PS3_STALL_MS` / `PS3_STALL_DIR` | `2500` / `<log>-stalls/` | Sem frame por esse tempo, o próprio jogo grava a pilha de todas as threads |
+| `PS3_FREEZE_DUMP` | ligado | Junto com cada stall, grava o estado do runtime (fences, guards e chains de job, workloads do SPURS, filas e flags de evento, sinais perdidos), no momento e de novo 15 s depois. `0` desliga |
+| `PS3_FREEZE_DIR` / `PS3_FREEZE_LOG` | `work/runs/freezes/<log>/` / o log da sessão | Destino do estado e de onde sai o fim do log (512 KB) |
+| `PS3_VERBOSE` | `0` | `1` loga cada job e espera de SPU (milhares de linhas por segundo) |
+| `PLAY_PROFILE` / `PLAY_PROFILE_BELOW` | `1` / 70, ou limite − 5 | Depois de 30 s abaixo do valor em cena 3D, um `perf record` de 20 s (até 3 por sessão). `0` desliga. `PERF=<binário>` quando o perf não está no PATH |
+| `SPU_DUMP_MISS` / `SPU_DUMP_STUCK` | `work/runs/spujob-*` | Imagem de job SPU sem tradução e local store de job preso (`PS3RECOMP_SPU_REPLAY=<arquivo>` repete) |
 
 Na linha `[vk hitch]`, programa novo aparece em quatro campos: `sh_xlate`
 (traduções do glslang no frame, em qualquer thread, inclusive nas `vk-warm`),
@@ -191,12 +197,6 @@ do RSX decompilando o microcódigo em HLSL, que continua lá). A CPU das `vk-war
 no frame sai como `cpu warm=`. O log ganha uma linha `[shader-async]` com o
 resumo: programas prontos antes do draw, esperados, feitos pelo próprio draw,
 abandonados por demora e pulados.
-| `PS3_STALL_MS` / `PS3_STALL_DIR` | `2500` / `<log>-stalls/` | Sem frame por esse tempo, o próprio jogo grava a pilha de todas as threads |
-| `PS3_FREEZE_DUMP` | ligado | Junto com cada stall, grava o estado do runtime (fences, guards e chains de job, workloads do SPURS, filas e flags de evento, sinais perdidos), no momento e de novo 15 s depois. `0` desliga |
-| `PS3_FREEZE_DIR` / `PS3_FREEZE_LOG` | `work/runs/freezes/<log>/` / o log da sessão | Destino do estado e de onde sai o fim do log (512 KB) |
-| `PS3_VERBOSE` | `0` | `1` loga cada job e espera de SPU (milhares de linhas por segundo) |
-| `PLAY_PROFILE` / `PLAY_PROFILE_BELOW` | `1` / 70, ou limite − 5 | Depois de 30 s abaixo do valor em cena 3D, um `perf record` de 20 s (até 3 por sessão). `0` desliga. `PERF=<binário>` quando o perf não está no PATH |
-| `SPU_DUMP_MISS` / `SPU_DUMP_STUCK` | `work/runs/spujob-*` | Imagem de job SPU sem tradução e local store de job preso (`PS3RECOMP_SPU_REPLAY=<arquivo>` repete) |
 
 Desligados, para ligar quando precisar:
 
