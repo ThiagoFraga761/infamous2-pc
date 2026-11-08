@@ -124,6 +124,9 @@ PS3RECOMP_RES_SCALE=2 PS3RECOMP_RT_ASPECT=3440x1440 PS3RECOMP_ASPECT=3440x1440 w
 | `PS3RECOMP_VK_PIPE_SKIP` | `[performance] async_effects` | `0` | `1` pula o draw cujo programa novo ainda está sendo traduzido ou cujo pipeline está atrasado, em vez de travar o quadro. O efeito some por alguns frames (pop visual). No F1: **Desempenho > Compilar efeitos novos em segundo plano**, vale na hora |
 | `PS3RECOMP_VK_PIPE_SKIP_MS` | — | `4` | Atraso tolerado, contado da criação do pipeline, antes de pular |
 | `PS3RECOMP_VK_PIPE_NICE` | — | `5` | nice das threads `vk-warm` (0–19) |
+| `PS3RECOMP_ENG_CUBE_USED` | — | ligado | O programa de fragmento é decompilado só com as unidades cube que ele amostra. Antes, um cube esquecido em outra unidade punha um `TextureCube rsx_texc[16]` sem uso no texto: o mesmo programa virava pipeline novo, `.spv` novo (glslang) e SPIR-V novo para o driver, idêntico a não ser por 4 ids. Isso aconteceu com 137 dos 692 programas traduzidos em 07/11. O texto passa a ser o que o programa tem sem cube sobrando, então o quadro sai igual. `0` volta à máscara inteira |
+| `PS3RECOMP_VK_SPV_LEGACY` | — | `1` | Se não há `.spv` desta revisão do tradutor, usa o que uma revisão anterior com a mesma tradução deixou (`RSX_SPIRV_TRANSLATOR_SAME_SINCE`) e o guarda com o nome novo, sem rodar o glslang. A troca 1 → 2 de 07/11 só mexeu nos decompiladores, mas renomeou todos os `.spv`: 41 dos 48 programas traduzidos na sessão das 23:03 já existiam, idênticos byte a byte, com o nome da revisão 1. `0` desliga; `2` traduz assim mesmo, compara com o arquivo antigo e loga `[spv-cache] ... differed` |
+| `PS3_HOT_PIN_LEND` | — | ligado (só com `PS3_HOT_PIN`) | Enquanto a thread de gravação espera uma `vk-warm` (programa novo ou variante), essa `vk-warm` roda na CPU da gravação, que fica ociosa durante a espera, em vez de dividir núcleo com uma thread quente. Muda só afinidade. `0` desliga. A linha `[pipe-async]` conta as esperas com `waits on a lent CPU` |
 | `MESA_SHADER_CACHE_DIR` | — | `~/.cache/ps3recomp/mesa` (play.sh) | Cache de shaders do driver só deste jogo, com 4 GB (`MESA_SHADER_CACHE_MAX_SIZE`). Evita os primeiros frames de vários segundos depois de um update do Mesa |
 | `PS3RECOMP_NATIVE_SSAO`, `PS3RECOMP_NATIVE_LIGHTING` | — | `1` (main.cpp) | Oclusão ambiente e iluminação deferida na GPU. `0` volta ao job de SPU; `2` compara os dois |
 | `PS3RECOMP_NATIVE_EDGE` | — | `1` | Kernels Edge em C no lugar do código SPU traduzido. `0` desliga todos, incluindo os três abaixo |
@@ -201,7 +204,10 @@ porque o programa ainda não estava pronto, só contagem) e `sh_decomp` (a threa
 do RSX decompilando o microcódigo em HLSL, que continua lá). A CPU das `vk-warm`
 no frame sai como `cpu warm=`. O log ganha uma linha `[shader-async]` com o
 resumo: programas prontos antes do draw, esperados, feitos pelo próprio draw,
-abandonados por demora e pulados.
+abandonados por demora e pulados. A linha `[spv-cache]` diz quantos programas
+vieram do `.spv` de uma revisão anterior do tradutor sem passar pelo glslang
+(ou, com `PS3RECOMP_VK_SPV_LEGACY=2`, quantos foram conferidos e quantos
+deram diferente).
 
 Desligados, para ligar quando precisar:
 
@@ -294,6 +300,22 @@ em `VK_RING_VERTEX_MB`.
 | `PS3RECOMP_VK_SHADER_ASYNC` | ligado (precisa de `PS3RECOMP_VK_PIPE_ASYNC`) | `0` traduz programa novo na thread do RSX, como antes |
 | `PS3RECOMP_VK_PIPE_SKIP` | `0` (opt-in, F1 ou `[performance] async_effects = 1`) | — |
 
+### Shader novo sem pico (shader-warm-3)
+
+Na missão pesada (sessão das 23:03 de 07/11), 20 frames de 29 a 96 ms foram
+programa novo. Somados, deram 923 ms de `sh_sync`: 520 ms de glslang
+(`sh_xlate`, em paralelo) e o resto compilação do driver. Nenhum programa da
+sessão das 21:43 foi traduzido de novo, então o cache de `.spv` desta revisão
+não tem buraco. O buraco estava em duas outras coisas: o mesmo programa
+traduzido duas vezes por causa de um cube sobrando em outra unidade, e a troca
+de revisão do tradutor jogando fora `.spv` que continuavam valendo.
+
+| Variável | Padrão | Para voltar |
+|---|---|---|
+| `PS3RECOMP_ENG_CUBE_USED` | ligado (só com o banco de cube do Vulkan) | `0` decompila com a máscara de cube de todas as unidades |
+| `PS3RECOMP_VK_SPV_LEGACY` | `1` | `0` sempre traduz quando falta o `.spv` desta revisão; `2` traduz e compara |
+| `PS3_HOT_PIN_LEND` | ligado com `PS3_HOT_PIN` | `0` não empresta a CPU da gravação |
+
 ### Streaming de textura sem pico (tex-stream)
 
 Cortam o custo de uma área nova, quando centenas de texturas chegam num frame
@@ -370,7 +392,15 @@ checked against the code on 2026-11-07.
   async_effects`, live), native Edge kernels (decompression and compression
   on, index opt-in), `SPU_FAST_CLOCK=0` (the SPU threads' clock back on
   clock_gettime instead of the calibrated TSC), `SPU_MICRO_FAST=0` (old opcode
-  order in the SPU stub microstep).
+  order in the SPU stub microstep). New-program spikes (shader-warm-3):
+  `PS3RECOMP_ENG_CUBE_USED` (on; the fragment program is decompiled with the
+  cube mask cut to the units it samples, so a stray cube on another unit no
+  longer makes the same program a second pipeline, .spv and driver compile),
+  `PS3RECOMP_VK_SPV_LEGACY` (1; a program with no .spv of this translator
+  revision reuses the one an older revision with the same translation left,
+  without glslang; `2` translates and compares), `PS3_HOT_PIN_LEND` (on with
+  `PS3_HOT_PIN`; the vk-warm thread the recording thread waits for runs on the
+  recording thread's idle CPU for the wait).
 - **Controls, language, paths** (section 4): `PS3RECOMP_KBM*`,
   `PS3_SYS_LANG`, `PS3_VOICE_LANG`, `PS3_TEXT_LANG`, `PS3_SAVEDATA_ROOT`,
   `PS3_USER_DIR`, `PS3_MODS_DIR`, `PS3_DEV_FLASH`.
