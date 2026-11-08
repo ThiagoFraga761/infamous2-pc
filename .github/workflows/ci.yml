@@ -104,14 +104,12 @@ jobs:
           done
           exit $fail
 
-  # The toolkit's runtime library with our patch on Windows and macOS. These
-  # two are NOT required to pass yet: the patch added Linux-only code (futex,
-  # TSC clock, CPU pinning, Vulkan) and nobody has run the port on either
-  # system. A red job here is a list of what still has to be ported.
+  # The toolkit's runtime library with our patch on Windows (MinGW-w64, the
+  # toolkit's own Windows path) and macOS arm64. They prove it compiles and
+  # links there; nobody has run the game on either system yet.
   toolkit-windows:
-    name: Windows (toolkit runtime library via MinGW-w64, experimental)
+    name: Windows (toolkit runtime library via MinGW-w64)
     runs-on: windows-latest
-    continue-on-error: true
     defaults:
       run:
         shell: msys2 {0}
@@ -142,9 +140,8 @@ jobs:
         run: test -s ps3recomp/build/libps3recomp_runtime.a
 
   toolkit-macos:
-    name: macOS arm64 (toolkit runtime library, experimental)
+    name: macOS arm64 (toolkit runtime library)
     runs-on: macos-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies

@@ -130,10 +130,10 @@ não precisa dele:
 |---|---|---|
 | `hygiene` | `check_clean --tracked`, sintaxe dos scripts, Python compila, patch sem binário | sim |
 | `toolkit-linux` | ps3recomp no commit fixado + o patch, build com Vulkan, testes do walker, do runtime SPU e das opções, cenas Vulkan sob a validation layer (lavapipe) | sim |
-| `toolkit-windows` | biblioteca do toolkit com o patch (clang-cl) | não, experimental |
-| `toolkit-macos` | biblioteca do toolkit com o patch (arm64) | não, experimental |
+| `toolkit-windows` | biblioteca do toolkit com o patch (MinGW-w64, o caminho Windows do próprio toolkit) | sim |
+| `toolkit-macos` | biblioteca do toolkit com o patch (arm64) | sim |
 | `game` | build completo e `run_all.sh` num runner **seu**, que tenha o lift; só roda com a variável `SELF_HOSTED_BUILD=true` e um runner com o label `ps3-lift` | só se ligado |
 
-Windows e macOS ficam fora do bloqueio porque o patch trouxe código só de
-Linux (futex, relógio TSC, afinidade de CPU, Vulkan) e ninguém rodou o port
-nesses sistemas: o vermelho ali é a lista do que falta portar.
+Windows e macOS provam que o toolkit com o patch compila e linka lá. Rodar o
+jogo neles continua sem teste: o jogo precisa do lift do seu disco, que o CI
+público não tem.
