@@ -205,5 +205,16 @@ watch_stall() {
 watch_stall &
 WATCH=$!
 cd "$ROOT"
-"$BIN" disc/PS3_GAME/USRDIR/EBOOT.elf ${GAME_ARGS[@]+"${GAME_ARGS[@]}"} 2>&1 | tee "$LOG"
+# The game in a cgroup scope of its own with 10x the CPU weight of an
+# ordinary app: run from a terminal it shared the terminal's scope (weight
+# 100), and one busy program elsewhere could keep the RSX thread off its core
+# for 176 ms (2026-11-07, "runq rsx=175.7" in the hitch line). systemd-run
+# execs the game in place, so it stays this script's child under its own name.
+# PLAY_CPU_WEIGHT=0 runs it as before.
+LAUNCH=()
+if [ "${PLAY_CPU_WEIGHT:-1000}" != 0 ] && command -v systemd-run > /dev/null &&
+   systemd-run --user --scope -q true 2> /dev/null; then
+    LAUNCH=(systemd-run --user --scope -q -p "CPUWeight=${PLAY_CPU_WEIGHT:-1000}")
+fi
+${LAUNCH[@]+"${LAUNCH[@]}"} "$BIN" disc/PS3_GAME/USRDIR/EBOOT.elf ${GAME_ARGS[@]+"${GAME_ARGS[@]}"} 2>&1 | tee "$LOG"
 kill "$WATCH" 2>/dev/null || true

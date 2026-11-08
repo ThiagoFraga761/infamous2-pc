@@ -114,6 +114,7 @@ PS3RECOMP_RES_SCALE=2 PS3RECOMP_RT_ASPECT=3440x1440 PS3RECOMP_ASPECT=3440x1440 w
 | `PS3_MAIN_WAITS` | — | `0` | `1` liga o pacote de esperas nativas da thread principal (abaixo). Com limite de 60: main de 99% para 46% de CPU, p99 de 16,9 para 17,7 ms. Bom para gastar menos CPU com limite |
 | `PS3_HOT_PIN` | — | `1` (main.cpp) | Main, rsx, rsx-record e os 5 SPUs, cada um num núcleo físico próprio (precisa de SMT e 8+ núcleos). `0` desliga |
 | `PS3_HOT_PIN_CORE` | — | `1` | Cada thread quente pode rodar nas duas CPUs lógicas do seu núcleo, não só numa. Presa a uma CPU, ela não tinha para onde ir quando algo de fora do jogo ocupava essa CPU (07/11: a rsx ficou 176 ms de um frame de 189 ms pronta e sem CPU). Duas threads quentes continuam sem dividir núcleo. `0` volta à máscara de uma CPU |
+| `PLAY_CPU_WEIGHT` | — | `1000` | O `play.sh` roda o jogo num scope de cgroup próprio (`systemd-run --user --scope`) com esse peso de CPU, 10x o de um app comum. Antes ele dividia o scope do terminal (peso 100) e um programa ocupado podia tirar a CPU das threads quentes. `0` roda como antes |
 | `PS3_HOT_PIN_SCAN_MS` | — | `100` | Intervalo em que as threads novas são tiradas das CPUs quentes (era 1 s). As threads de PPU do jogo, os timers, as threads de SPU assíncronas e o gravador do cache de pipeline já saem na partida |
 | `PS3_HOT_NICE` | — | desligado | `-1` a `-15`: esse nice nas threads quentes, por `setpriority` ou, sem `RLIMIT_NICE`, pelo rtkit (`busctl`, sem root). Só pesa contra as outras threads do próprio jogo: contra outro processo, o cgroup do jogo continua com o mesmo peso. Experimental, sem medição |
 | `SPURS_PRIO` | — | `0:1` (main.cpp) | Workload General do SPURS primeiro em todo SPU |
@@ -422,6 +423,8 @@ checked against the code on 2026-11-07.
   recording thread's idle CPU for the wait).
   Hot threads may now run on both logical
   CPUs of their core (`PS3_HOT_PIN_CORE`, on; `0` is the old one-CPU mask),
+  play.sh runs the game in a cgroup scope of its own with CPU weight 1000
+  (`PLAY_CPU_WEIGHT`, `0` as before),
   new threads leave the hot CPUs within `PS3_HOT_PIN_SCAN_MS` (100) or at once,
   and `PS3_HOT_NICE=-N` (opt-in) asks rtkit for that nice on them.
 - **Controls, language, paths** (section 4): `PS3RECOMP_KBM*`,
