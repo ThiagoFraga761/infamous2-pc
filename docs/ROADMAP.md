@@ -59,7 +59,7 @@ em qualquer área do jogo, e depois **4K a 120 com upscaling**. Estado em
 | Teto de CPU na área pesada | Com a leva 3, a thread principal, a do RSX, a de gravação e os SPUs ficam todos em 85–91%. Nenhuma otimização isolada sobe muito mais o teto |
 | Kernel de índices Edge (0xC7B8) | Escrito e testado fora do jogo (`PS3RECOMP_NATIVE_EDGE_IDX`); falta a comparação em jogo (modo 2) antes de ligar por padrão |
 | `PS3_MAIN_WAITS` | Com limite de 60, a main cai de 99% para 46% de CPU, com p99 de 16,9 para 17,7 ms. Falta decidir se vira padrão |
-| `PS3RECOMP_BQ_TEXBUILD` | Ligado no fork, fixado em 0 no port até um A/B de p99 numa área nova |
+| Streaming de textura (`PS3RECOMP_BQ_TEXBUILD` e os switches de tex-stream em docs/OPCOES.md) | TEXBUILD ligado também no port desde 07/11 (noite), com decodificação direto na fila, blocos de memória para texturas pequenas e barreiras agrupadas. Falta o A/B de p99 numa área nova (missão pesada) |
 | Ultrawide Hor+ | Fases 1 (FOV), 2 (escala por eixo) e 3 (HUD, menus e vídeos em 16:9 no centro, opção no F1) feitas; custa ~7% a 3440×1440 na área pesada. Falta conferir o HUD numa janela ultrawide de verdade e a fase 3b (marcadores presos ao mundo) |
 | Planos de corte e PCF largo | Implementados e opt-in (`PS3RECOMP_CLIP_PLANES`, `PS3RECOMP_SHADOW_PCF`); falta conferir em jogo se o reflexo da água usa o 0x1478 e qual é o sinal certo |
 
@@ -152,8 +152,12 @@ everywhere in the game; then **4K at 120 with upscaling**. State on
   the state; it needs a freeze to happen with it on.
 - **CPU ceiling in the heavy area:** main, RSX, recording thread and the SPUs
   are all at 85–91%.
-- **Edge index kernel, `PS3_MAIN_WAITS`, `PS3RECOMP_BQ_TEXBUILD`:** written,
-  opt-in, waiting for in-game measurements before they become defaults.
+- **Edge index kernel, `PS3_MAIN_WAITS`:** written, opt-in, waiting for
+  in-game measurements before they become defaults.
+- **Texture streaming:** `PS3RECOMP_BQ_TEXBUILD` is on in the port too, with
+  decoding straight into the recording queue, shared memory blocks for small
+  textures and one barrier per texture's levels; the p99 A/B in a new area is
+  still to be run.
 - **Ultrawide Hor+:** phases 1-3 done (FOV, per-axis scale, centred 16:9 HUD, F1 option); ~7% at 3440x1440 in the heavy area. Phase 3b (world-pinned markers) left.
 - **User clip planes and wider shadow PCF:** opt-in, not checked in game.
 
