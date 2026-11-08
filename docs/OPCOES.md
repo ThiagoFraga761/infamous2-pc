@@ -111,6 +111,7 @@ PS3RECOMP_RES_SCALE=2 PS3RECOMP_RT_ASPECT=3440x1440 PS3RECOMP_ASPECT=3440x1440 w
 | `PS3_MAIN_WAITS` | — | `0` | `1` liga o pacote de esperas nativas da thread principal (abaixo). Com limite de 60: main de 99% para 46% de CPU, p99 de 16,9 para 17,7 ms. Bom para gastar menos CPU com limite |
 | `PS3_HOT_PIN` | — | `1` (main.cpp) | Main, rsx, rsx-record e os 5 SPUs, cada um num núcleo físico próprio (precisa de SMT e 8+ núcleos). `0` desliga |
 | `SPURS_PRIO` | — | `0:1` (main.cpp) | Workload General do SPURS primeiro em todo SPU |
+| `SPU_FAST_CLOCK` | — | ligado | Relógio das threads SPU (decrementador, spin ocioso do SPURS, kernels nativos de job) lido do TSC, calibrado contra `CLOCK_MONOTONIC` nos primeiros 50 ms. Só liga se o clocksource do kernel for `tsc`; o log diz `[spu-clock]`. `0` volta ao `clock_gettime` |
 | `PS3RECOMP_VK_PIPE_WARM` | — | ligado | Pipelines vistos antes (`~/.cache/ps3recomp/pipekeys-v1.bin`) são recriados em segundo plano na partida. `0` desliga |
 | `PS3RECOMP_VK_PIPE_WARM_THREADS` | — | CPUs/4, entre 2 e 4 | Threads `vk-warm` (também os workers da fila assíncrona) |
 | `PS3RECOMP_VK_PIPE_WARM_MAX` | — | `4096` | Quantos registros aquecer na partida; `0` grava a lista e não aquece |
@@ -298,7 +299,8 @@ checked against the code on 2026-11-07.
   file), `PS3RECOMP_BE_THREAD`, `PS3_MAIN_WAITS=1` (opt-in: the main thread
   goes from 99% to 46% CPU under a 60 fps cap), pipeline warm-up and async
   variants, native Edge kernels (decompression and compression on, index
-  opt-in).
+  opt-in), `SPU_FAST_CLOCK=0` (the SPU threads' clock back on clock_gettime
+  instead of the calibrated TSC).
 - **Controls, language, paths** (section 4): `PS3RECOMP_KBM*`,
   `PS3_SYS_LANG`, `PS3_VOICE_LANG`, `PS3_TEXT_LANG`, `PS3_SAVEDATA_ROOT`,
   `PS3_USER_DIR`, `PS3_MODS_DIR`, `PS3_DEV_FLASH`.

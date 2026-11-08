@@ -525,11 +525,11 @@ int spu_native_register(int image_id, uint32_t addr, int (*fn)(spu_context*));
 static int s_mode = -1;                 /* PS3RECOMP_NATIVE_J220 */
 static _Thread_local int t_bypass;
 static unsigned long long s_calls, s_native, s_fallback, s_fb[4], s_cmp, s_bad, s_ns_nat, s_ns_spu;
-static inline uint64_t now_ns(void)
-{
-    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
-}
+/* The SPU threads' TSC clock (runtime/spu/spu_clock.h): the stats tick reads
+ * it on every call, and clock_gettime inside busy job code is ~170 cycles.
+ * SPU_FAST_CLOCK=0 makes it clock_gettime again. */
+uint64_t spu_clock_ns(void);
+static inline uint64_t now_ns(void) { return spu_clock_ns(); }
 static void stats(void)
 {
     static uint64_t next;
