@@ -4,11 +4,20 @@ O repositório guarda só o que é deste projeto. O `.gitignore` é uma lista de
 permissões: tudo fica de fora, menos o que está nomeado nele. O jogo, o
 código traduzido e os builds nunca entram, mesmo que estejam na mesma pasta.
 
+## Sumário
+
+- [O que está no git](#o-que-está-no-git)
+- [O que fica só na sua máquina](#o-que-fica-só-na-sua-máquina)
+- [O ps3recomp e o patch](#o-ps3recomp-e-o-patch)
+- [A barreira contra arquivos do jogo](#a-barreira-contra-arquivos-do-jogo)
+- [Summary (English)](#summary-english)
+- [CI (`.github/workflows/ci.yml`)](#ci-githubworkflowsciyml)
+
 ## O que está no git
 
 | Caminho | O que é |
 |---|---|
-| `README.md`, `CHANGELOG.md`, `CREDITS.md`, `LICENSE` | Apresentação, histórico de versões, créditos e licença (MIT) |
+| `README.md` (inglês), `README.pt-BR.md` (português), `CHANGELOG.md`, `CREDITS.md`, `LICENSE` | Apresentação, histórico de versões, créditos e licença (MIT) |
 | `docs/` | Documentação. [ARQUIVOS_NECESSARIOS](ARQUIVOS_NECESSARIOS.md) (o que tirar do PS3), [OPCOES](OPCOES.md) (todas as variáveis), [ROADMAP](ROADMAP.md), [MODS](MODS.md), [NOTES](NOTES.md) (engenharia reversa e medições), [GITHUB_SETUP](GITHUB_SETUP.md) (configurações do repositório e como fazer um release), `RELEASE_NOTES_<versão>.md`, e `screenshots/` (os únicos binários permitidos: JPEGs pequenos) |
 | `scripts/` | `setup.sh` (ps3recomp + patch + ImGui + venv), `lift.sh` (traduz o executável), `build.sh` (compila), `make_patch.sh` (regenera o patch), `check_clean.sh` e `install-hooks.sh` (a barreira contra arquivos do jogo) |
 | `work/play.sh` | Abre o jogo: janela, controle, som, logs e as capturas automáticas de travada |

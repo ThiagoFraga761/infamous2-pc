@@ -4,12 +4,33 @@ What was learned while porting inFAMOUS 2 (BCUS98125 01.00). Addresses are
 effective addresses in that executable's memory map unless marked LS (SPU local
 store).
 
+## Contents
+
+- [How the port is put together](#how-the-port-is-put-together)
+- [The frame's critical path](#the-frames-critical-path)
+- [Particles and fragment depth export](#particles-and-fragment-depth-export)
+- [Water](#water)
+- [Resolution scale (`PS3RECOMP_RES_SCALE`)](#resolution-scale-ps3recomp_res_scale)
+- [Frame pipelining (`PS3RECOMP_VK_PIPELINE`)](#frame-pipelining-ps3recomp_vk_pipeline)
+- [What limits the frame rate where (2026-10-16)](#what-limits-the-frame-rate-where-2026-10-16)
+- [The start screen and the in-game menu](#the-start-screen-and-the-in-game-menu)
+- [The game's own menus](#the-games-own-menus)
+- [The window](#the-window)
+- [Ultrawide (experimental)](#ultrawide-experimental)
+- [Saves](#saves)
+- [Language](#language)
+- [Long sessions](#long-sessions)
+- [Stuck SPURS jobs](#stuck-spurs-jobs)
+- [Diagnostics worth knowing](#diagnostics-worth-knowing)
+- [Lessons](#lessons)
+
 ## How the port is put together
 
 - **PPU.** `ppu_loader.py` finds the functions and imports. `ppu_lifter.py`
   translates the ~39,000 functions (346 jump tables) to C in `work/src/recomp`.
   The port links that with the ps3recomp runtime. System modules are HLE.
-- **SPU.** Every SPU image the game runs is lifted to C (`work/tools/lift_spu.py`):
+- **SPU.** Every SPU image the game runs is lifted to C
+  (`work/tools/lift_spu.py`):
   - the WWS job manager's policy module (EA 0x887080, at LS 0xA00);
   - the 27 job modules (`C0DEC0DE`, at LS 0x4000);
   - the 5 plugins of the ambient-occlusion job (at LS 0x6C00);
@@ -431,7 +452,8 @@ The fragment program translator had no depth export, so that pass left the
 buffer at its clear value. Particles were depth-tested and soft-tested against
 a flat 0.5, so most of them were dropped and large sprites were cut along
 straight lines -- the likely source of the flat, dark rectangles reported over
-the water in a cutscene (not yet checked in that scene). Now `r1.z` becomes `SV_Depth` (as RPCS3 does, from r1 whatever
+the water in a cutscene (not yet checked in that scene). Now `r1.z` becomes
+`SV_Depth` (as RPCS3 does, from r1 whatever
 the colour export width), and the downsampled buffer matches the scene.
 
 `PS3RECOMP_ENG_DRAWTRACE_PX=<fx>,<fy>` names the draws that change one pixel,
@@ -857,7 +879,8 @@ drained nothing ever published another. The tail is now a release store and
 an acquire load, and once the walker has drained to `put` with the queue
 empty, ref is set to the newest fence if it shows anything else (logged).
 
-Earlier description: reproduced twice under load (Rog Ally and desktop, camera turning):
+Earlier description: reproduced twice under load (Rog Ally and desktop, camera
+turning):
 presentation stops, the main thread spins in `sys_timer_usleep` forever, the
 SPURS threads sleep, the audio job chain keeps running its Wwise DSP jobs, the
 RSX thread waits for commands. `work/runs/freeze_hunt.sh` repeats the bench
@@ -954,7 +977,8 @@ output the SPUs rebuild every frame), and the fetch, remap and index rebuild
 were ~7.5 ms of the RSX thread's frame. No dropped draws or depth fighting
 seen at 2x.
 
-Status before: it renders New Marais and the pier correctly. It uploads ~9 MB of raw
+Status before: it renders New Marais and the pier correctly. It uploads ~9 MB of
+raw
 bytes a frame there, against 22 MB of expanded vertices. It bypasses the
 geometry cache, though: in New Marais it is ~3% slower than the cache. It
 stays off until it wins somewhere. Known gaps before it can be the default:
@@ -1351,7 +1375,8 @@ game's first `ListAutoLoad` (`cellSaveData.c`):
 - **Backups.** Loading `BCUS98125_INFAMOUS2_1` ("5. Karma é uma Merda"), the
   game wrote its autosave over `_0` within two minutes, as it would after a
   load from the pause menu. That is why both choices back the saves up first,
-  and refuse to start when the copy fails. Nothing is moved, every later call lists the saves,
+  and refuse to start when the copy fails. Nothing is moved, every later call
+lists the saves,
 and the pause menu loads them as before. A new game's first autosave goes to
 `BCUS98125_INFAMOUS2_0`, the autosave slot, as on the console, so the
 saves are copied to `user/backups` first. Checked on a copy of a real save: the
@@ -1452,7 +1477,8 @@ title id from `PARAM.SFO` (cellGame had been reporting the placeholder
 
 The disc carries the voices and text of every region (`brazilian.psarc`,
 `brazilian_text.psarc`, `latino.psarc` and the rest), and the game picks a
-pair at boot from `cellSysutilGetSystemParamInt(CELL_SYSUTIL_SYSTEMPARAM_ID_LANG)`.
+pair at boot from
+`cellSysutilGetSystemParamInt(CELL_SYSUTIL_SYSTEMPARAM_ID_LANG)`.
 `cellSysutil` used to answer English (US) always; it now reads
 `PS3_SYS_LANG` (a number 0-19 or a name, see `cellSysutil.c`), and
 `play.sh` sets `pt`.
