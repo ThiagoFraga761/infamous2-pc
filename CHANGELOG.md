@@ -153,9 +153,10 @@ do port e o patch do ps3recomp, sobre o upstream `42f5f8f`.
 
 - Deadlock raro no meio do jogo (imagem para, áudio continua), sem causa
   achada.
-- Ultrawide: o HUD centralizado foi conferido só em bench sem janela; os marcadores presos ao mundo ainda usam a posição 16:9.
+- Ultrawide: o HUD centralizado foi conferido só em bench sem janela; os
+  marcadores presos ao mundo ainda usam a posição 16:9.
 - Teclado e mouse na fase 1: a mira passa pela aceleração do analógico do
   jogo.
 - Windows: o build com MinGW linka, mas nunca foi testado.
 
-[0.1.0]: https://github.com/ThiagoFraga761/infamous2-pc/releases/tag/v0.1.0
+[0.1.0]: https://github.com/alvarorichard/infamous2-pc/releases/tag/v0.1.0

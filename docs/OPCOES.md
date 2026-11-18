@@ -4,6 +4,17 @@ Tudo o que muda o comportamento do port sem recompilar. Os nomes e os padrões
 foram conferidos no código em 07/11/2026: o port (`work/port/`) e o ps3recomp
 com o patch (`work/patches/ps3recomp.patch`).
 
+## Sumário
+
+- [Como as opções se combinam](#como-as-opções-se-combinam)
+- [1. Vídeo](#1-vídeo)
+- [2. Ultrawide e FOV](#2-ultrawide-e-fov)
+- [3. Desempenho](#3-desempenho)
+- [4. Controle, idioma e caminhos](#4-controle-idioma-e-caminhos)
+- [5. Diagnóstico](#5-diagnóstico)
+- [6. Kill switches das três levas de 07/11/2026](#6-kill-switches-das-três-levas-de-07112026)
+- [Summary (English)](#summary-english)
+
 ## Como as opções se combinam
 
 1. **`user/settings.ini`** guarda o que o menu principal e o menu do jogo (F1)
@@ -142,7 +153,8 @@ PS3RECOMP_RES_SCALE=2 PS3RECOMP_RT_ASPECT=3440x1440 PS3RECOMP_ASPECT=3440x1440 w
 | `PS3RECOMP_BQ_TEXBUILD` | — | `1` (main.cpp) | Texturas novas criadas na thread do RSX, ao lado da thread de gravação, sem esperar a fila esvaziar. A GPU recebe os mesmos comandos na mesma ordem. `0` volta a esperar a fila a cada textura nova |
 
 Ajuste fino do pacote `PS3_MAIN_WAITS`. Cada um também pode ser ligado
-sozinho, e um valor explícito ganha do pacote (`PS3_MAIN_WAITS=1 PS3_JL_WAIT=0`):
+sozinho, e um valor explícito ganha do pacote
+(`PS3_MAIN_WAITS=1 PS3_JL_WAIT=0`):
 
 | Variável | Padrão | Efeito |
 |---|---|---|

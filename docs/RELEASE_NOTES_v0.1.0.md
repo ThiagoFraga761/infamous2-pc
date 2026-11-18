@@ -2,6 +2,8 @@
 sugerido: "v0.1.0 — primeiro release". Marcar como pre-release. NÃO anexar
 nenhum arquivo: o release é só o código-fonte que o GitHub gera sozinho. -->
 
+# v0.1.0
+
 > [!IMPORTANT]
 > **Este release não inclui o jogo, nem dados do jogo, nem binários.** É só o
 > código-fonte do port e o patch do ps3recomp. Para jogar, você precisa do
@@ -49,18 +51,20 @@ tem um cache de shaders próprio.
   diferença em ~2,5 milhões de chamadas comparadas.
 - Cadeia de pós (AA, FSR 1, redução) e escala 5K.
 - Teclado e mouse (fase 1).
-- Ultrawide Hor+ experimental (F1 > Vídeo > Ultrawide): mundo no formato do monitor, HUD, menus e vídeos centralizados em 16:9. Na área pesada a 3440×1440 custa ~7% (108 → 101 fps).
+- Ultrawide Hor+ experimental (F1 > Vídeo > Ultrawide): mundo no formato do
+  monitor, HUD, menus e vídeos centralizados em 16:9. Na área pesada a 3440×1440
+  custa ~7% (108 → 101 fps).
 - Caixa-preta das travas e linha `[vk hitch]` com a causa de cada frame lento.
 - Saves atômicos.
 
-A lista completa está no [CHANGELOG](https://github.com/ThiagoFraga761/infamous2-pc/blob/v0.1.0/CHANGELOG.md),
-e todas as opções em [docs/OPCOES.md](https://github.com/ThiagoFraga761/infamous2-pc/blob/v0.1.0/docs/OPCOES.md).
+A lista completa está no [CHANGELOG](https://github.com/alvarorichard/infamous2-pc/blob/v0.1.0/CHANGELOG.md),
+e todas as opções em [docs/OPCOES.md](https://github.com/alvarorichard/infamous2-pc/blob/v0.1.0/docs/OPCOES.md).
 
 ### Como usar
 
 1. Coloque o dump do seu disco em `disc/PS3_GAME/` e descriptografe o
    `EBOOT.BIN` para `EBOOT.elf`
-   ([docs/ARQUIVOS_NECESSARIOS.md](https://github.com/ThiagoFraga761/infamous2-pc/blob/v0.1.0/docs/ARQUIVOS_NECESSARIOS.md)).
+   ([docs/ARQUIVOS_NECESSARIOS.md](https://github.com/alvarorichard/infamous2-pc/blob/v0.1.0/docs/ARQUIVOS_NECESSARIOS.md)).
 2. Compile e jogue:
 
 ```sh
@@ -82,7 +86,9 @@ Requisitos:
 
 - Deadlock raro no meio do jogo (a imagem para e o áudio continua), ainda sem
   causa. Se acontecer, mande o log e a pasta `work/runs/freezes/`.
-- Ultrawide: o HUD centralizado foi conferido só em bench sem janela; os marcadores presos ao mundo (alvos, ícones sobre pessoas) ainda usam a posição 16:9.
+- Ultrawide: o HUD centralizado foi conferido só em bench sem janela; os
+  marcadores presos ao mundo (alvos, ícones sobre pessoas) ainda usam a posição
+  16:9.
 - Teclado e mouse: a mira ainda passa pela aceleração do analógico do jogo.
 - **Windows não testado**: o build com MinGW linka, mas ninguém o rodou.
 
@@ -123,20 +129,22 @@ has a shader cache of its own.
   million compared calls.
 - A post chain (AA, FSR 1, downscale) and a 5K scale.
 - Keyboard and mouse (phase 1).
-- Experimental ultrawide Hor+ (F1 > Video > Ultrawide): the world in the monitor's shape, the HUD, menus and videos centred in 16:9. In the heavy area at 3440×1440 it costs ~7% (108 → 101 fps).
+- Experimental ultrawide Hor+ (F1 > Video > Ultrawide): the world in the
+  monitor's shape, the HUD, menus and videos centred in 16:9. In the heavy area
+  at 3440×1440 it costs ~7% (108 → 101 fps).
 - A freeze black box, and a `[vk hitch]` line with the cause of every slow
   frame.
 - Atomic saves.
 
-Full list in the [CHANGELOG](https://github.com/ThiagoFraga761/infamous2-pc/blob/v0.1.0/CHANGELOG.md);
-every option in [docs/OPCOES.md](https://github.com/ThiagoFraga761/infamous2-pc/blob/v0.1.0/docs/OPCOES.md)
+Full list in the [CHANGELOG](https://github.com/alvarorichard/infamous2-pc/blob/v0.1.0/CHANGELOG.md);
+every option in [docs/OPCOES.md](https://github.com/alvarorichard/infamous2-pc/blob/v0.1.0/docs/OPCOES.md)
 (Portuguese, with an English summary).
 
 ### How to use
 
 1. Put your disc dump in `disc/PS3_GAME/` and decrypt `EBOOT.BIN` to
    `EBOOT.elf`
-   ([docs/ARQUIVOS_NECESSARIOS.md](https://github.com/ThiagoFraga761/infamous2-pc/blob/v0.1.0/docs/ARQUIVOS_NECESSARIOS.md)).
+   ([docs/ARQUIVOS_NECESSARIOS.md](https://github.com/alvarorichard/infamous2-pc/blob/v0.1.0/docs/ARQUIVOS_NECESSARIOS.md)).
 2. Build and play:
 
 ```sh
@@ -158,7 +166,8 @@ Requirements:
 
 - A rare mid-game deadlock (the picture stops, the audio goes on), cause not
   found yet. If it happens, send the log and the `work/runs/freezes/` folder.
-- Ultrawide: the centred HUD was only checked in a windowless bench; markers pinned to the world (targets, icons over people) still use the 16:9 position.
+- Ultrawide: the centred HUD was only checked in a windowless bench; markers
+  pinned to the world (targets, icons over people) still use the 16:9 position.
 - Keyboard and mouse: aiming still goes through the game's stick
   acceleration.
 - **Windows untested**: the MinGW build links, but nobody has run it.

@@ -4,6 +4,13 @@ A meta é **120 fps estáveis**, medidos pelo tempo de frame e não pela média,
 em qualquer área do jogo, e depois **4K a 120 com upscaling**. Estado em
 08/11/2026 (v0.2.0).
 
+## Sumário
+
+- [Feito](#feito)
+- [Em andamento](#em-andamento)
+- [Próximos](#próximos)
+- [Roadmap (English)](#roadmap-english)
+
 ## Feito
 
 - **O jogo inteiro roda:** boot, vídeos, menus, cutscenes e gameplay de Empire
@@ -113,13 +120,13 @@ ligar o SDL2 no build e trocar o rastreamento de escrita (hoje feito com
 
 ---
 
-# Roadmap (English)
+## Roadmap (English)
 
 The goal is **a steady 120 fps**, by frame time rather than average,
 everywhere in the game; then **4K at 120 with upscaling**. State on
 2026-11-07 (v0.1.0).
 
-## Done
+### Done
 
 - **The whole game runs:** boot, videos, menus, cutscenes and gameplay from
   Empire City into New Marais, with audio, controller, saves and the
@@ -145,7 +152,7 @@ everywhere in the game; then **4K at 120 with upscaling**. State on
   - a freeze black box;
   - a `[vk hitch]` line for every slow frame.
 
-## In progress
+### In progress
 
 - **Rare mid-game deadlock:** the main thread waits on an event flag while
   job chain `0x00B19600` sits at guard `0x00B15000`. The black box now records
@@ -158,10 +165,12 @@ everywhere in the game; then **4K at 120 with upscaling**. State on
   decoding straight into the recording queue, shared memory blocks for small
   textures and one barrier per texture's levels; the p99 A/B in a new area is
   still to be run.
-- **Ultrawide Hor+:** phases 1-3 done (FOV, per-axis scale, centred 16:9 HUD, F1 option); ~7% at 3440x1440 in the heavy area. Phase 3b (world-pinned markers) left.
+- **Ultrawide Hor+:** phases 1-3 done (FOV, per-axis scale, centred 16:9 HUD, F1
+  option); ~7% at 3440x1440 in the heavy area. Phase 3b (world-pinned markers)
+  left.
 - **User clip planes and wider shadow PCF:** opt-in, not checked in game.
 
-## Next
+### Next
 
 - **Base:**
   - fix the deadlock;

@@ -4,6 +4,15 @@ Tudo vem do **seu** PS3. Nada disto está no repositório, e nada que o build
 produz a partir desses arquivos pode ser distribuído: o código traduzido é o
 código do jogo.
 
+## Sumário
+
+- [1. O disco](#1-o-disco)
+- [2. O executável descriptografado](#2-o-executável-descriptografado)
+- [3. O firmware (`dev_flash`)](#3-o-firmware-dev_flash)
+- [4. O PC](#4-o-pc)
+- [Depois](#depois)
+- [Required files (English)](#required-files-english)
+
 ## 1. O disco
 
 **inFAMOUS 2, BCUS98125 (EUA), versão 01.00.** O port é feito para os
@@ -48,9 +57,10 @@ Para outro lugar: `PS3_DEV_FLASH=<pasta>`.
   - CPU sem AVX-512: `PORT_SPU_MARCH=x86-64-v3`.
   - CPU sem AVX2: `PORT_PPU_MARCH=` (vazio).
 - **GPU** com Vulkan e uma fila gráfica que também faz compute.
-- **Pacotes no Fedora** (adapte para a sua distro): `gcc gcc-c++ clang cmake
-  ninja-build python3 SDL2-devel vulkan-headers vulkan-loader-devel
-  glslang-devel`.
+- **Pacotes.** Os comandos de instalação para Fedora, Arch e Debian/Ubuntu
+  estão no [README](../README.pt-BR.md#passo-0-confira-o-seu-pc). Lista do
+  Fedora: `gcc gcc-c++ clang cmake ninja-build python3 SDL2-devel
+  vulkan-headers vulkan-loader-devel glslang-devel`.
 - **~14 GB de RAM livres** para compilar e **~3 GB de disco** para o código
   traduzido e os builds.
 
@@ -69,7 +79,7 @@ faria no console. Os saves ficam em
 
 ---
 
-# Required files (English)
+## Required files (English)
 
 - **The disc:** inFAMOUS 2 **BCUS98125 (US), version 01.00**, dumped from your
   own PS3, with `disc/PS3_GAME/` at the repository root.
@@ -87,7 +97,7 @@ faria no console. Os saves ficam em
 Nothing built from these files may be shared: it is the game's code,
 translated.
 
-## Levar os arquivos para outro PC
+### Levar os arquivos para outro PC
 
 O repositório é público e não carrega nada do jogo, então o `disc/` (com o
 `EBOOT.elf`) não vai pelo git. Copie direto de uma máquina sua para a outra:
